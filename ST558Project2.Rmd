@@ -1,0 +1,48 @@
+---
+title: "ST 558 Project 2"
+author: "David Arthur"
+date: "6/28/2021"
+output:
+  github_document:
+    toc: true
+always_allow_html: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(caret)
+```
+
+
+Read in data
+```{r message = FALSE}
+day <- readr::read_csv("day.csv", col_types = cols(
+  season = col_factor(),
+  yr = col_factor(),
+  mnth = col_factor(),
+  holiday = col_factor(),
+  weekday = col_factor(),
+  workingday = col_factor(),
+  weathersit = col_factor()))
+```
+
+Partition data into training and test sets
+```{r}
+set.seed(21)
+trainIndex <- createDataPartition(day$cnt, p = 0.7, list = FALSE)
+dayTrain <- day[trainIndex, ]
+dayTest <- day[-trainIndex, ]
+```
+
+Exploratory data analysis and summary (David)
+```{r}
+
+```
+
+Exploratory data analysis and summary (James)
+```{r}
+
+```
+
+
