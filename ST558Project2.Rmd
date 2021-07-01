@@ -12,6 +12,7 @@ always_allow_html: true
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(caret)
+library(corrplot)
 ```
 
 
@@ -25,6 +26,8 @@ day <- readr::read_csv("day.csv", col_types = cols(
   weekday = col_factor(),
   workingday = col_factor(),
   weathersit = col_factor()))
+
+# dayNF <- readr::read_csv("day.csv")
 ```
 
 Partition data into training and test sets
@@ -36,8 +39,46 @@ dayTest <- day[-trainIndex, ]
 ```
 
 Exploratory data analysis and summary (David)
-```{r}
+```{r message = FALSE}
+GGally::ggpairs(dayTrain %>% select(3:9, atemp, windspeed, casual, registered, cnt))
+# dayNFCor <- cor(as.matrix(dayNF %>% select(3:9, atemp, windspeed, casual, registered,cnt)))
+# corrplot(dayNFCor, type = "upper", tl.pos = "lt")
+# corrplot(dayNFCor, type = "lower", method = "number", add = TRUE, diag = FALSE, tl.pos = "n")
+```
 
+Exploration of individual predictors
+```{r}
+g <- ggplot(data = dayTrain)
+g + geom_point(aes(x = weekday, y = casual))
+g + geom_point(aes(x = dteday, y = cnt))
+
+meanByWeekday <- dayTrain %>% group_by(weekday) %>%
+  summarize(meanCas = mean(casual), meanReg = mean(registered), meanTotal = mean(cnt))
+g2 <- ggplot(meanByWeekday, aes(x = weekday, y = meanCas))
+g2 + geom_bar(aes(x = weekday, y = meanCas), stat = "identity")
+g2 + geom_bar(aes(y = meanReg), stat = "identity")
+g2 + geom_bar(aes(y = meanTotal), stat = "identity")
+
+meanBySeason <- dayTrain %>% group_by(season) %>%
+  summarize(meanCas = mean(casual), meanReg = mean(registered), meanTotal = mean(cnt))
+g2 <- ggplot(meanBySeason, aes(x = season))
+g2 + geom_bar(aes(y = meanCas), stat = "identity")
+g2 + geom_bar(aes(y = meanReg), stat = "identity")
+g2 + geom_bar(aes(y = meanTotal), stat = "identity")
+
+meanByMonth <- dayTrain %>% group_by(mnth) %>%
+  summarize(meanCas = mean(casual), meanReg = mean(registered), meanTotal = mean(cnt))
+g2 <- ggplot(meanByMonth, aes(x = mnth))
+g2 + geom_bar(aes(y = meanCas), stat = "identity")
+g2 + geom_bar(aes(y = meanReg), stat = "identity")
+g2 + geom_bar(aes(y = meanTotal), stat = "identity")
+
+meanByYear <- dayTrain %>% group_by(yr) %>%
+  summarize(meanCas = mean(casual), meanReg = mean(registered), meanTotal = mean(cnt))
+g2 <- ggplot(meanByYear, aes(x = yr))
+g2 + geom_bar(aes(y = meanCas), stat = "identity")
+g2 + geom_bar(aes(y = meanReg), stat = "identity")
+g2 + geom_bar(aes(y = meanTotal), stat = "identity")
 ```
 
 Exploratory data analysis and summary (James)
