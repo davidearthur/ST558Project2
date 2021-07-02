@@ -13,6 +13,8 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(caret)
 library(corrplot)
+library(ggplot2)
+library(GGally)
 ```
 
 
@@ -82,8 +84,38 @@ g2 + geom_bar(aes(y = meanTotal), stat = "identity")
 ```
 
 Exploratory data analysis and summary (James)
+```{r carr_explore, message=FALSE, fig.height = 9, fig.width = 15}
+ggpairs(dayTrain %>% select(-instant,-dteday, -season, -yr, -cnt), 
+        ggplot2::aes(colour=workingday))
+
+g <- ggplot(data = dayTrain)
+g + geom_point(aes(x = weekday, y = registered))
+```
+Notes from looking at ggpairs plots:
+Working days are the highest usage for registered riders, but non-working days are the highest usage for casual riders. Registered riders are the primary volume, so we definitely care most about them but worth keeping in mind. There are two types of non-working days: weekends and holidays, and there is a difference in volume for each of those rider types depending on whether it is a holiday or a weekend. 
+
+Air temperature and temperature are nearly 100% correlated. We should probably figure out which one of them we want to use. Speaking of correlated, can we drop the date and only use months? Unfortunately, it looks like we need to keep the year field as well, since year 2 had better performance than year 1. Do we want to keep season and month? I lean towards keeping year and month, but dropping season and date. Let me know what you think.
+
+Looking at the scatter of casual vs registered, broken out by working day, it's crazy how separate the linear relationships look:
 ```{r}
+g <- ggplot(data=dayTrain, aes(x=registered, y=casual))
+g + geom_point(aes(color=workingday))
 
 ```
+On working days, registered bikes are the main rider group. On non-working days, it switches to casual. Looking at day of the week, we may be able to exclude it since it will be covered by the working day flag and holiday flag, but I guess we can check the models to see if it provides anything extra.
+
+```{r}
+g <- ggplot(data=dayTrain %>% 
+                 select(weekday, casual, registered) %>%
+                 pivot_longer(cols=c(casual, registered),
+                              names_to = 'metrics',
+                              values_to = 'riders') %>%
+                 group_by(weekday, metrics) %>%
+                 summarise(avg_riders = mean(riders)), 
+            aes(x=weekday, y=avg_riders, fill=metrics))
+g + geom_bar(stat='identity', position='dodge')
+```
+Looking at this graph, weekday definitely seems relatively stable across the days (working days for registered and non-working days for casual are the jumps), but there may be enough variation to include it. 
+
 
 
