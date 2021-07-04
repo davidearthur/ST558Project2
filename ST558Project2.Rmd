@@ -90,8 +90,6 @@ Exploratory data analysis and summary (James)
 ggpairs(dayTrain %>% select(-instant,-dteday, -season, -yr, -cnt), 
         ggplot2::aes(colour=workingday))
 
-g <- ggplot(data = dayTrain)
-g + geom_point(aes(x = weekday, y = registered))
 ```
 Notes from looking at ggpairs plots:
 Working days are the highest usage for registered riders, but non-working days are the highest usage for casual riders. Registered riders are the primary volume, so we definitely care most about them but worth keeping in mind. There are two types of non-working days: weekends and holidays, and there is a difference in volume for each of those rider types depending on whether it is a holiday or a weekend. 
@@ -122,4 +120,69 @@ Looking at this graph, weekday definitely seems relatively stable across the day
 ##I like this graph.  I thought about doing one like it, but wasn't sure how to code it.  pivot_longer hadn't occurred to me.
 
 ##About which variables to include, I agree with your comments.  My understanding is that each of us comes up with our own models (I do a linear regression and a random forest, you do a linear regression and a boosted tree), so you and I don't need to include the same predictors.  We do need to agree ahead of time on which response we're going to model (casual, registered, or cnt), so that the results of the 4 models can be compared to each other.  I'm fine with any of the 3.  Do you have a preference?
+
+Yeah, no preference here either. I guess we could just say registered since it's the highest volume customer, and if we were doing this analysis for that company then registered users would be the most important group.
+
+
+```{r carr_bestsub}
+library(leaps)
+
+data <- dayTrain %>% 
+               filter(weekday == 1) %>% drop_na() %>%
+               select(-instant,-dteday, -season, 
+                    -weekday, -atemp, -casual, -cnt)
+
+#this function converts new data to a model matrix
+#so that a prediction can be run via matrix multiplication
+#on a best subsets model
+predict.regsubsets = function(object,newdata,id,...){
+      form = as.formula(object$call[[2]]) 
+      mat = model.matrix(form,newdata)    
+      coefi = coef(object,id=id)          
+      xvars = names(coefi)                
+      mat[,xvars]%*%coefi               
+}
+
+
+#let's do cross validation with folds
+k <- 4
+set.seed(21)
+folds <- sample(1:k, nrow(data), replace=T)
+
+cv_errors = matrix(NA, k, 16, dimnames = list(NULL, paste(1:16)))
+
+for (j in 1:k) {
+  best <- regsubsets(registered ~ ., 
+                     data=data[folds!=j,], nvmax=20)
+  
+  for (i in 1:16) {
+    pred <- predict(best, data[folds==j,], id=i)
+    
+    
+    cv_errors[j, i] <- mean((temp_data$registered[folds==j]-pred)^2)
+  }
+}
+
+# Take the mean of over all folds for each model size
+mean_cv_errors = apply(cv_errors, 2, mean)
+
+# Find the model size with the smallest cross-validation error
+min = which.min(mean_cv_errors)
+
+#the model w/ 14 variables was best when using 4 fold cv.
+#i did 4 fold because there are only about 80 rows of data per weekday
+
+best_full <- regsubsets(registered ~ ., 
+                     data=temp_data[folds!=j,], nvmax=20)
+
+```
+
+```{r}
+fit <- lm(registered ~ temp*hum,
+        data=dayTrain %>% 
+             filter(weekday == 1) %>% drop_na() %>%
+             select(-instant,-dteday, -season, 
+                    -weekday, -atemp, -casual, -cnt))
+```
+
 
