@@ -6,10 +6,12 @@ output:
   github_document:
     toc: true
 always_allow_html: true
+params:
+  dayOfWeek: "Monday"
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, error = TRUE)
 library(tidyverse)
 library(caret)
 library(corrplot)
@@ -21,7 +23,7 @@ library(leaps)
 ```
 
 
-Read in data
+Read in data, filter by day of week
 ```{r message = FALSE}
 day <- readr::read_csv("day.csv", col_types = cols(
   season = col_factor(),
@@ -35,9 +37,10 @@ day <- readr::read_csv("day.csv", col_types = cols(
 day <- day %>% mutate(season = fct_recode(season, winter = "1", spring = "2", summer = "3", fall = "4")) %>%
   mutate(yr = fct_recode(yr, "2011" = "0", "2012" = "1")) %>%
   mutate(weekday = fct_recode(weekday, Sunday = "0", Monday = "1", Tuesday = "2", Wednesday = "3", Thursday = "4", Friday = "5", Saturday = "6")) %>%
-  mutate(weathersit = fct_recode(weathersit, clear = "1", mist = "2", lightRainOrSnow = "3", heavyRainOrSnow = "4")) 
+  mutate(weathersit = fct_recode(weathersit, clear = "1", mist = "2", lightRainOrSnow = "3", heavyRainOrSnow = "4")) %>%
+  filter(weekday == params$dayOfWeek)
 
-# dayNF <- readr::read_csv("day.csv")
+dayNF <- readr::read_csv("day.csv")
 ```
 
 Partition data into training and test sets
@@ -59,8 +62,7 @@ GGally::ggpairs(dayTrain %>% select(3:9, atemp, windspeed, casual, registered, c
 Exploration of individual predictors
 ```{r}
 g <- ggplot(data = dayTrain)
-g + geom_point(aes(x = weekday, y = casual))
-g + geom_point(aes(x = dteday, y = cnt))
+g + geom_point(aes(x = dteday, y = registered))
 
 meanByMonth <- dayTrain %>% group_by(mnth) %>%
   summarize(meanCas = mean(casual), meanReg = mean(registered), meanTotal = mean(cnt))
@@ -128,11 +130,11 @@ Yeah, no preference here either. I guess we could just say registered since it's
 ##Sounds good, we'll go with registered.
 
 
-```{r carr_bestsub}
+```{r carr_bestsub, error = TRUE}
 library(leaps)
 
 data <- dayTrain %>% 
-               filter(weekday == 1) %>% drop_na() %>%
+               filter(weekday == params$dayOfWeek) %>% drop_na() %>%
                select(-instant,-dteday, -season, 
                     -weekday, -atemp, -casual, -cnt)
 
@@ -184,21 +186,23 @@ best_full <- regsubsets(registered ~ .,
 ```{r}
 fit <- lm(registered ~ temp*hum,
         data=dayTrain %>% 
-             filter(weekday == 1) %>% drop_na() %>%
+             filter(weekday == params$dayOfWeek) %>% drop_na() %>%
              select(-instant,-dteday, -season, 
                     -weekday, -atemp, -casual, -cnt))
 ```
 
+```{r}
+names(dayTrain)
+```
 
-```{r arthur_bestMLR}
+
+```{r arthur_bestMLR, message = FALSE, warning = FALSE}
 # GGally::ggpairs(dayTrain %>% select(3:9, atemp, windspeed, casual, registered, cnt))
 dayNFCor <- cor(as.matrix(dayNF %>% select(3:13, registered)))
 corrplot(dayNFCor, type = "upper", tl.pos = "lt")
 corrplot(dayNFCor, type = "lower", method = "number", add = TRUE, diag = FALSE, tl.pos = "n")
 
-#JUST MONDAY DATA
-dayTrain <- dayTrain %>% filter(weekday == "Monday") %>% select(-weekday)
-mlrFull <- lm(registered ~ . - instant - casual - cnt, dayTrain)
+mlrFull <- lm(registered ~ dteday + season +  yr + mnth + holiday + workingday + weathersit + temp + atemp + hum + windspeed, dayTrain)
 summary(mlrFull)
 AIC(mlrFull)
 x <- model.matrix(mlrFull)[, -1]
@@ -331,12 +335,24 @@ mlrFit12 <- train(registered ~ season + yr + holiday + weathersit + atemp + hum 
     preProcess = c("center", "scale"),
     trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3))
 
-data.frame(t(mlrFit9$results), t(mlrFit10$results), t(mlrFit11$results), t(mlrFit12$results))
+comparison <- data.frame(t(mlrFit9$results), t(mlrFit10$results), t(mlrFit11$results), t(mlrFit12$results))
+colnames(comparison) <- c("mlrFit9", "mlrFit10", "mlrFit11", "mlrFit12")
+comparison
 #The lowest RMSE out of the 4 candidate models varies each time I run cross validation, so I will choose the simplest of the 4, mlrFit9
-
 mlrBest <- mlrFit9
 
 # for potentially automating choice of model
 # which.min(c(mlrFit9$results["RMSE"], mlrFit10$results["RMSE"], mlrFit11$results["RMSE"], mlrFit12$results["RMSE"]))
 ```
 
+
+```{r random_forest, message = FALSE, warning = FALSE}
+rfFit <- train(registered ~ . - instant - casual - cnt, data = dayTrain,
+               method = "rf",
+               trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3),
+               preProcess = c("center", "scale"),
+               tuneGrid = expand.grid(mtry = c(2, 7, 10:16, 20, 24)))
+rfFit
+```
+
+I added an initial version of my MLR and random forest models, and wrote a separate R script (ST558RenderProject2.r) to automate the reports for each day of the week.  There's still plenty of clean-up to do with the output, but the automation generally seems to be working.  Since the dataset now includes only one weekday at a time, some of our graphs, tables, etc. that included weekday don't make as much sense.  I still have some questions about whether we're supposed to do any initial data exploration with the full training set, or if we only work with one day at a time.  I might post a question on the discussion board or go to Wednesday office hours unless it's clear to you.
