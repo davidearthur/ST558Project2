@@ -16,6 +16,8 @@ library(corrplot)
 library(ggplot2)
 library(GGally)
 library(knitr)
+library(faraway)
+library(leaps)
 ```
 
 
@@ -123,6 +125,8 @@ Looking at this graph, weekday definitely seems relatively stable across the day
 
 Yeah, no preference here either. I guess we could just say registered since it's the highest volume customer, and if we were doing this analysis for that company then registered users would be the most important group.
 
+##Sounds good, we'll go with registered.
+
 
 ```{r carr_bestsub}
 library(leaps)
@@ -185,4 +189,154 @@ fit <- lm(registered ~ temp*hum,
                     -weekday, -atemp, -casual, -cnt))
 ```
 
+
+```{r arthur_bestMLR}
+# GGally::ggpairs(dayTrain %>% select(3:9, atemp, windspeed, casual, registered, cnt))
+dayNFCor <- cor(as.matrix(dayNF %>% select(3:13, registered)))
+corrplot(dayNFCor, type = "upper", tl.pos = "lt")
+corrplot(dayNFCor, type = "lower", method = "number", add = TRUE, diag = FALSE, tl.pos = "n")
+
+#JUST MONDAY DATA
+dayTrain <- dayTrain %>% filter(weekday == "Monday") %>% select(-weekday)
+mlrFull <- lm(registered ~ . - instant - casual - cnt, dayTrain)
+summary(mlrFull)
+AIC(mlrFull)
+x <- model.matrix(mlrFull)[, -1]
+e <- eigen(t(x) %*% x)
+e$val
+sqrt(e$val[1]/min(e$val))
+vif(x)
+
+#remove dteday (high collinearity, low p-value)
+mlr2 <- update(mlrFull, . ~ . - dteday)
+summary(mlr2)
+AIC(mlr2)
+x <- model.matrix(mlr2)[, -1]
+e <- eigen(t(x) %*% x)
+e$val
+sqrt(e$val[1]/min(e$val))
+vif(x)
+#reduced AIC and condition number
+
+#remove temp (high collinearity, low p-value)
+mlr3 <- update(mlr2, . ~ . - temp)
+summary(mlr3)
+AIC(mlr3)
+x <- model.matrix(mlr3)[, -1]
+e <- eigen(t(x) %*% x)
+e$val
+sqrt(e$val[1]/min(e$val))
+vif(x)
+#reduced AIC and condition number
+
+#remove workingday (high collinearity, low p-value)
+mlr4 <- update(mlr3, . ~ . - workingday)
+summary(mlr4)
+AIC(mlr4)
+x <- model.matrix(mlr4)[, -1]
+e <- eigen(t(x) %*% x)
+e$val
+sqrt(e$val[1]/min(e$val))
+vif(x)
+#reduced AIC and condition number
+
+#remove season (high collinearity, low p-value)
+mlr5 <- update(mlr4, . ~ . - season)
+summary(mlr5)
+AIC(mlr5)
+#don't remove season because AIC increased
+
+#remove month (high collinearity, low p-value)
+mlr6 <- update(mlr4, . ~ . - mnth)
+summary(mlr6)
+AIC(mlr6)
+x <- model.matrix(mlr6)[, -1]
+e <- eigen(t(x) %*% x)
+e$val
+sqrt(e$val[1]/min(e$val))
+vif(x)
+#reduced AIC and condition number
+
+#remove year from full model instead of dteday (high collinearity)
+mlr7 <- update(mlrFull, . ~ . - yr - workingday - temp, dayTrain)
+summary(mlr7)
+AIC(mlr7)
+x <- model.matrix(mlr7)[, -1]
+e <- eigen(t(x) %*% x)
+e$val
+sqrt(e$val[1]/min(e$val))
+vif(x)
+#higher AIC than mlr4
+
+#compare to model chosen by leaps::step() function
+mlrStep <- step(mlrFull)
+names(mlrStep)
+mlrStep$call
+mlr6$call
+AIC(mlr6, mlrStep)
+#my choice agrees with step() choice
+
+#diagnostics plot
+plot(mlr6$fitted, mlr6$residuals)
+#indication of mild nonconstant variance
+MASS::boxcox(mlr6)
+#Box-Cox lambda close to 1, so no need for transformation of response
+
+#look for nonlinearity with partial residuals plots
+termplot(mlr6, partial.resid = TRUE)
+#atemp, hum, and windspeed look somewhat nonlinear, so try quadratic terms for them
+mlr8 <- update(mlr6, . ~ . + I(atemp^2))
+summary(mlr8)
+AIC(mlr8)
+#improved AIC, so keep atemp^2 in model
+
+mlr9 <- update(mlr8, . ~ . + I(hum^2))
+summary(mlr9)
+AIC(mlr9)
+#improved AIC, so keep hum^2 in model
+
+mlr10 <- update(mlr9, . ~ . + I(windspeed^2))
+summary(mlr10)
+AIC(mlr10)
+#slightly improved AIC, compare using cross validation
+
+#interaction of weather vars w/ holiday seems possible, so try adding to model
+mlr11 <- update(mlr9, . ~ . + weathersit:holiday)
+summary(mlr11)
+AIC(mlr11)
+#slightly worse AIC, compare using cross validation
+mlr12 <- update(mlr9, . ~ . + atemp:holiday)
+summary(mlr12)
+AIC(mlr12)
+#marginal decrease in AIC, compare using cross validation
+
+#fit best candidate models using cross validation w/ caret package
+mlrFit9 <- train(registered ~ season + yr + holiday + weathersit + atemp + hum + windspeed + I(atemp^2) + I(hum^2), data = dayTrain,
+    method = "lm",
+    preProcess = c("center", "scale"),
+    trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3))
+
+mlrFit10 <- train(registered ~ season + yr + holiday + weathersit + atemp + hum + windspeed + I(atemp^2) + I(hum^2)+ I(windspeed^2), data = dayTrain,
+    method = "lm",
+    preProcess = c("center", "scale"),
+    trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3))
+
+mlrFit11 <- train(registered ~ season + yr + holiday + weathersit + atemp + hum + windspeed + I(atemp^2) + I(hum^2) + holiday:weathersit, data = dayTrain,
+    method = "lm",
+    preProcess = c("center", "scale"),
+    trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3))
+
+mlrFit12 <- train(registered ~ season + yr + holiday + weathersit + atemp + hum + windspeed + I(atemp^2) + I(hum^2) + holiday:atemp, data = dayTrain,
+    method = "lm",
+    preProcess = c("center", "scale"),
+    trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3))
+
+data.frame(t(mlrFit9$results), t(mlrFit10$results), t(mlrFit11$results), t(mlrFit12$results))
+#The lowest RMSE out of the 4 candidate models varies each time I run cross validation, so I will choose the simplest of the 4, mlrFit9
+
+mlrBest <- mlrFit9
+
+# for potentially automating choice of model
+# which.min(c(mlrFit9$results["RMSE"], mlrFit10$results["RMSE"], mlrFit11$results["RMSE"], mlrFit12$results["RMSE"]))
+```
 
