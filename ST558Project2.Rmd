@@ -7,7 +7,7 @@ output:
     toc: true
 always_allow_html: true
 params:
-  dayOfWeek: "Monday"
+  dayOfWeek: "Saturday"
 ---
 
 ```{r setup, include=FALSE}
@@ -22,9 +22,13 @@ library(faraway)
 library(leaps)
 ```
 
+# Introduction
 
-Read in data, filter by day of week
-```{r message = FALSE}
+
+
+
+We begin by reading in the data, changing the names of some factor levels, and filtering by day of week
+```{r message = FALSE, warning = FALSE}
 day <- readr::read_csv("day.csv", col_types = cols(
   season = col_factor(),
   yr = col_factor(),
@@ -40,10 +44,12 @@ day <- day %>% mutate(season = fct_recode(season, winter = "1", spring = "2", su
   mutate(weathersit = fct_recode(weathersit, clear = "1", mist = "2", lightRainOrSnow = "3", heavyRainOrSnow = "4")) %>%
   filter(weekday == params$dayOfWeek)
 
-dayNF <- readr::read_csv("day.csv")
+# read in version without factors for correlation plot
+dayNF <- readr::read_csv("day.csv", col_types = cols(
+  weekday = col_factor()))
 ```
 
-Partition data into training and test sets
+Next, we partition the data into training and test sets
 ```{r}
 set.seed(21)
 trainIndex <- createDataPartition(day$cnt, p = 0.7, list = FALSE)
@@ -51,47 +57,44 @@ dayTrain <- day[trainIndex, ]
 dayTest <- day[-trainIndex, ]
 ```
 
-Exploratory data analysis and summary (David)
+
+# Summarizations
+We begin our exploratory analysis of the data with a graphical overview of the relationships between variables.  Obvious patterns in the plots, as well as high correlation values, indicate associations between variables.
 ```{r message = FALSE}
-GGally::ggpairs(dayTrain %>% select(3:9, atemp, windspeed, casual, registered, cnt))
+GGally::ggpairs(dayTrain %>% select(2:6, 8:9, atemp, windspeed, registered, casual))
 # dayNFCor <- cor(as.matrix(dayNF %>% select(3:9, atemp, windspeed, casual, registered,cnt)))
 # corrplot(dayNFCor, type = "upper", tl.pos = "lt")
 # corrplot(dayNFCor, type = "lower", method = "number", add = TRUE, diag = FALSE, tl.pos = "n")
 ```
 
-Exploration of individual predictors
+We will now look in more detail at relationships between time-related variables and the `registered` response variable. When we do our linear regression modeling we will need to decide which (if any) of these predictors to use. For example, the date variable (`dteday`) and `season` may not be useful in the presence of `weekday`, `mnth`, and `yr` (or vice versa), as they provide largely redundant information.
 ```{r}
 g <- ggplot(data = dayTrain)
 g + geom_point(aes(x = dteday, y = registered))
 
-meanByMonth <- dayTrain %>% group_by(mnth) %>%
-  summarize(meanCas = mean(casual), meanReg = mean(registered), meanTotal = mean(cnt))
-g2 <- ggplot(meanByMonth, aes(x = mnth))
-g2 + geom_bar(aes(y = meanCas), stat = "identity")
-g2 + geom_bar(aes(y = meanReg), stat = "identity")
-g2 + geom_bar(aes(y = meanTotal), stat = "identity")
+meanByMonthYr <- dayTrain %>% group_by(mnth, yr) %>%
+  summarize(meanReg = mean(registered))
+g2 <- ggplot(meanByMonthYr, aes(x = mnth))
+g2 + geom_bar(aes(y = meanReg, fill = yr), position = "dodge", stat = "identity")
+```
 
-meanByYear <- dayTrain %>% group_by(yr) %>%
-  summarize(meanCas = mean(casual), meanReg = mean(registered), meanTotal = mean(cnt))
-g2 <- ggplot(meanByYear, aes(x = yr))
-g2 + geom_bar(aes(y = meanCas), stat = "identity")
-g2 + geom_bar(aes(y = meanReg), stat = "identity")
-g2 + geom_bar(aes(y = meanTotal), stat = "identity")
+We will look next in more detail at the relationship between quantitative weather variables and the `registered` response variable.  The appearance of nonlinear relationships in the plots may indicate the need for quadratic terms in our linear regression models.  The adjusted temperature variable, `atemp`, seems particularly likely to require a quadratic term, as both low and high temperatures can discourage people from bicycling.  Similarly, with humidity and windspeed, low to moderate values may have no effect, but particularly high values could have an effect, so those variables may also require quadratic terms.
+```{r}
+g + geom_point(aes(x = atemp, y = registered)) + facet_wrap(~ yr)
+g + geom_point(aes(x = hum, y = registered)) + facet_wrap(~ yr)
+g + geom_point(aes(x = windspeed, y = registered)) + facet_wrap(~ yr)
+```
 
+We now view at a table displaying the mean number of `registered`, `casual`, and total riders at each level of the categorical `weathersit` variable.  It seems plausible that in rain or snow, the number of casual riders might decrease by a larger factor than would the number of registered riders.
+```{r}
 meanByWeather <- dayTrain %>% group_by(weathersit) %>%
   summarize(meanCas = mean(casual), meanReg = mean(registered), meanTotal = mean(cnt))
 kable(meanByWeather, digits = 1, col.names = c("Weather", "Mean Casual Riders", "Mean Registered Riders", "Mean Total Riders"), caption = "Average # of riders by weather category")
-
-meanByHoliday <- dayTrain %>% filter(workingday == 0) %>%
-  group_by(holiday) %>%
-  summarize(meanCas = mean(casual), meanReg = mean(registered), meanTotal = mean(cnt))
-kable(meanByHoliday, digits = 1, col.names = c("Holiday (0 = no, 1 = yes)", "Mean Casual Riders", "Mean Registered Riders", "Mean Total Riders"), caption = "Average # of riders on holidays vs. non-holiday non-workdays")
-
 ```
 
 Exploratory data analysis and summary (James)
 ```{r carr_explore, message=FALSE, fig.height = 9, fig.width = 15}
-ggpairs(dayTrain %>% select(-instant,-dteday, -season, -yr, -cnt), 
+ggpairs(dayTrain %>% select(-instant,-dteday, -season, -yr, -cnt, -weekday), 
         ggplot2::aes(colour=workingday))
 
 ```
@@ -129,7 +132,22 @@ Yeah, no preference here either. I guess we could just say registered since it's
 
 ##Sounds good, we'll go with registered.
 
+# Modeling
+We will now fit two linear regression models, using differing approaches, with the goal of creating a model that does a good job of predicting the number of registered riders on any given day, based on the values of the predictor variables in the data set.  We will fit the models using the training data set that we partitioned above, and then test the accuracy of the models' predictions using the test data set.
 
+Linear regression estimates the effect of each predictor variable on the mean value of the response variable, with the other predictor variables held constant.  A linear regression model can be expressed as 
+$$Y_i = \beta_0 + \beta_1X_{i1} + \beta_2X_{i2} + ... + \beta_pX_{ip} + E_i$$
+
+where $Y_i$ is the response, $i$ represents the observation number, $X_{ij}$ are the predictor variables, and $E_i$ is the normally distributed random error. The $\beta_j$ coefficents must be linear, but the predictor variables can be higher order terms (e.g. $x^2$) or interaction terms (e.g. $x_1x_2$).  Creating a model to estimate the response using observed data, we have
+$$\hat{y_i} = \hat\beta_0 + \hat\beta_1x_{i1} + \hat\beta_2x_{i2} + ... + \hat\beta_px_{ip}$$
+
+The $\hat\beta_j$ coefficients (estimates for $\beta_j$) are calculated for each predictor variable to minimize the residual sum of squares, using the observed values of $x_{ij}$ and $y_i$
+$$min_{\beta_0, \beta_1, ..., \beta_p}\sum_{i=1}^{n}(y_i - \beta_0 - \beta_1x_{i1} - \beta_2x_{i2} - ... - \beta_px_{ip})^2$$
+
+The linear regression model can be used for inference, to understand the relationships between the predictor variables and the response, as well as for prediction of a mean response given new values of the predictor variables.  There are varying approaches to choosing which predictor variables to include in a linear regression model.  For our first linear regression model, we ....
+For our second linear regression model, we ....
+
+###First linear regression model
 ```{r carr_bestsub, error = TRUE}
 library(leaps)
 
@@ -195,31 +213,46 @@ fit <- lm(registered ~ temp*hum,
 names(dayTrain)
 ```
 
+### Second linear regression model
+In this approach, we start with a full linear regression model that includes all of the predictor variables.  We will then reduce collinearity (correlation among predictor variables) by removing redundant predictors until we reach an optimal (lowest) AIC.  We will calculate the condition number ($\kappa$) for each of the candidate models, which is a measure of collinearity.  Roughly, $\kappa < 30$ is considered desirable.  Finally, we will choose among several variations of the optimal model (including various higher order terms) using cross validation.  Cross validation subdivides the training set into 4 (in this case) folds, then fits a model using 3 of those folds, and tests its accuracy predicting on the 4th fold.  This is repeated 3 more times, so that each fold gets a turn as the test set.  Several measures of the performance of the model are returned.  We will choose the best model in terms of lowest Root Mean Squared Error.
 
+
+First, we view the correlations between the variables.  For days of the week that don't include any holidays, `?` will appear.
 ```{r arthur_bestMLR, message = FALSE, warning = FALSE}
-# GGally::ggpairs(dayTrain %>% select(3:9, atemp, windspeed, casual, registered, cnt))
-dayNFCor <- cor(as.matrix(dayNF %>% select(3:13, registered)))
+dayNFCor <- cor(as.matrix(dayNF %>%
+                            mutate(weekday = fct_recode(weekday, Sunday = "0", Monday = "1", Tuesday = "2", Wednesday = "3", Thursday = "4", Friday = "5", Saturday = "6")) %>%
+                            mutate(dteday = as.numeric(dteday)) %>%
+                            filter(weekday == params$dayOfWeek) %>%
+                            select(2:6, 8:13, registered)))
 corrplot(dayNFCor, type = "upper", tl.pos = "lt")
 corrplot(dayNFCor, type = "lower", method = "number", add = TRUE, diag = FALSE, tl.pos = "n")
+```
 
-mlrFull <- lm(registered ~ dteday + season +  yr + mnth + holiday + workingday + weathersit + temp + atemp + hum + windspeed, dayTrain)
-summary(mlrFull)
+
+```{r}
+mlrFull <- lm(registered ~ dteday + season +  yr + mnth + holiday + workingday + 
+                weathersit + temp + atemp + hum + windspeed, dayTrain)
+sumary(mlrFull)
 AIC(mlrFull)
 x <- model.matrix(mlrFull)[, -1]
 e <- eigen(t(x) %*% x)
-e$val
+# e$val
+# condition number =
 sqrt(e$val[1]/min(e$val))
-vif(x)
+```
 
+
+
+
+```{r}
 #remove dteday (high collinearity, low p-value)
 mlr2 <- update(mlrFull, . ~ . - dteday)
 summary(mlr2)
 AIC(mlr2)
 x <- model.matrix(mlr2)[, -1]
 e <- eigen(t(x) %*% x)
-e$val
+# e$val
 sqrt(e$val[1]/min(e$val))
-vif(x)
 #reduced AIC and condition number
 
 #remove temp (high collinearity, low p-value)
@@ -228,9 +261,8 @@ summary(mlr3)
 AIC(mlr3)
 x <- model.matrix(mlr3)[, -1]
 e <- eigen(t(x) %*% x)
-e$val
+# e$val
 sqrt(e$val[1]/min(e$val))
-vif(x)
 #reduced AIC and condition number
 
 #remove workingday (high collinearity, low p-value)
@@ -239,9 +271,8 @@ summary(mlr4)
 AIC(mlr4)
 x <- model.matrix(mlr4)[, -1]
 e <- eigen(t(x) %*% x)
-e$val
+# e$val
 sqrt(e$val[1]/min(e$val))
-vif(x)
 #reduced AIC and condition number
 
 #remove season (high collinearity, low p-value)
@@ -256,9 +287,8 @@ summary(mlr6)
 AIC(mlr6)
 x <- model.matrix(mlr6)[, -1]
 e <- eigen(t(x) %*% x)
-e$val
+# e$val
 sqrt(e$val[1]/min(e$val))
-vif(x)
 #reduced AIC and condition number
 
 #remove year from full model instead of dteday (high collinearity)
@@ -267,9 +297,8 @@ summary(mlr7)
 AIC(mlr7)
 x <- model.matrix(mlr7)[, -1]
 e <- eigen(t(x) %*% x)
-e$val
+# e$val
 sqrt(e$val[1]/min(e$val))
-vif(x)
 #higher AIC than mlr4
 
 #compare to model chosen by leaps::step() function
@@ -335,6 +364,7 @@ mlrFit12 <- train(registered ~ season + yr + holiday + weathersit + atemp + hum 
     preProcess = c("center", "scale"),
     trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3))
 
+names(mlrFit9)
 comparison <- data.frame(t(mlrFit9$results), t(mlrFit10$results), t(mlrFit11$results), t(mlrFit12$results))
 colnames(comparison) <- c("mlrFit9", "mlrFit10", "mlrFit11", "mlrFit12")
 comparison
