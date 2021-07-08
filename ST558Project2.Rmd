@@ -7,7 +7,7 @@ output:
     toc: true
 always_allow_html: true
 params:
-  dayOfWeek: "Saturday"
+  dayOfWeek: "Monday"
 ---
 
 ```{r setup, include=FALSE}
@@ -23,7 +23,26 @@ library(leaps)
 ```
 
 # Introduction
+The data set this program analyzes can be found [here](https://archive.ics.uci.edu/ml/datasets/Bike+Sharing+Dataset). The data describes its volume of riders by a few dimensions: 
 
+*  season
+*  day of the week
+*  year
+*  month
+*  holiday (y/n flag)
+*  working day (y/n flag)
+*  weather (good, fair, poor, bad)
+*  temperature 
+*  humidity
+*  wind
+
+It is further broken down into three response variables: 
+
+*  Casual: non-registered riders who use the service casually
+*  Registered: registered riders who use the service more regularly
+*  Total: casual and registered combined
+
+The split between casual and registered is important, because they behave completely differently, use the service on different days, times, holidays, etc. Often, their behavior is inverse of each other, though the registered rider group is largest portion of riders and would be the primary client of the business. Keeping in mind that the registered client represents the largest portion of the clientele, this program focuses on the registered metric and splits the behavior by each day of the week. 
 
 
 
@@ -93,44 +112,55 @@ kable(meanByWeather, digits = 1, col.names = c("Weather", "Mean Casual Riders", 
 ```
 
 Exploratory data analysis and summary (James)
-```{r carr_explore, message=FALSE, fig.height = 9, fig.width = 15}
-ggpairs(dayTrain %>% select(-instant,-dteday, -season, -yr, -cnt, -weekday), 
-        ggplot2::aes(colour=workingday))
+```{r carr_explore, message=FALSE, warning=FALSE}
 
-```
-Notes from looking at ggpairs plots:
-Working days are the highest usage for registered riders, but non-working days are the highest usage for casual riders. Registered riders are the primary volume, so we definitely care most about them but worth keeping in mind. There are two types of non-working days: weekends and holidays, and there is a difference in volume for each of those rider types depending on whether it is a holiday or a weekend. 
 
-Air temperature and temperature are nearly 100% correlated. We should probably figure out which one of them we want to use. Speaking of correlated, can we drop the date and only use months? Unfortunately, it looks like we need to keep the year field as well, since year 2 had better performance than year 1. Do we want to keep season and month? I lean towards keeping year and month, but dropping season and date. Let me know what you think.
+scatter_james <- ggplot(data=dayTrain, aes(x=temp, y=registered)) +
+                 geom_point(aes(color=weathersit))
+hist_james <- ggplot(data=dayTrain, aes(x=weathersit)) +
+              geom_histogram(stat='count', aes(fill=workingday)) +
+              ggtitle('Frequency of Weather') +
+              xlab('Weather Type') + ylab('Count')
 
-Looking at the scatter of casual vs registered, broken out by working day, it's crazy how separate the linear relationships look:
-```{r}
-g <- ggplot(data=dayTrain, aes(x=registered, y=casual))
-g + geom_point(aes(color=workingday))
-
-```
-On working days, registered bikes are the main rider group. On non-working days, it switches to casual. Looking at day of the week, we may be able to exclude it since it will be covered by the working day flag and holiday flag, but I guess we can check the models to see if it provides anything extra.
-
-```{r}
-g <- ggplot(data=dayTrain %>% 
-                 select(weekday, casual, registered) %>%
+bar_james <- ggplot(data=dayTrain %>% 
+                 select(season, casual, registered) %>%
                  pivot_longer(cols=c(casual, registered),
                               names_to = 'metrics',
                               values_to = 'riders') %>%
-                 group_by(weekday, metrics) %>%
+                 group_by(season, metrics) %>%
                  summarise(avg_riders = mean(riders)), 
-            aes(x=weekday, y=avg_riders, fill=metrics))
-g + geom_bar(stat='identity', position='dodge')
+            aes(x=season, y=avg_riders, fill=metrics)) +     
+            geom_bar(stat='identity', position='dodge') +
+            ggtitle('Average Number of Riders') +
+              xlab('Season') + ylab('Average # of Riders')
+  
+box_james <- ggplot(data=dayTrain, aes(x=season, y=temp)) +
+             geom_boxplot(aes(color=season))
+box_james
+bar_james
+scatter_james
+hist_james
 ```
-Looking at this graph, weekday definitely seems relatively stable across the days (working days for registered and non-working days for casual are the jumps), but there may be enough variation to include it. 
 
-##I like this graph.  I thought about doing one like it, but wasn't sure how to code it.  pivot_longer hadn't occurred to me.
 
-##About which variables to include, I agree with your comments.  My understanding is that each of us comes up with our own models (I do a linear regression and a random forest, you do a linear regression and a boosted tree), so you and I don't need to include the same predictors.  We do need to agree ahead of time on which response we're going to model (casual, registered, or cnt), so that the results of the 4 models can be compared to each other.  I'm fine with any of the 3.  Do you have a preference?
-
-Yeah, no preference here either. I guess we could just say registered since it's the highest volume customer, and if we were doing this analysis for that company then registered users would be the most important group.
-
-##Sounds good, we'll go with registered.
+```{r summarize}
+summ_james <- dayTrain %>% 
+              pivot_longer(cols=c(casual, registered, cnt),
+                           names_to = 'metrics',
+                           values_to = 'riders') %>%
+              group_by(metrics) %>%
+              summarise(min = min(riders),
+                        lower25 = quantile(riders, 0.25),
+                        median = median(riders),
+                        mean = mean(riders),
+                        upper75 = quantile(riders, 0.75),
+                        max = max(riders))  %>%
+              pivot_longer(cols=c(min, lower25, median,
+                                  mean, upper75, max),
+                           names_to = 'Summary',
+                           values_to = 'stats') %>%
+              pivot_wider(names_from = metrics, values_from = stats)
+```
 
 # Modeling
 We will now fit two linear regression models, using differing approaches, with the goal of creating a model that does a good job of predicting the number of registered riders on any given day, based on the values of the predictor variables in the data set.  We will fit the models using the training data set that we partitioned above, and then test the accuracy of the models' predictions using the test data set.
