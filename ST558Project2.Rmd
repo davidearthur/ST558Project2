@@ -159,7 +159,7 @@ for (j in 1:k) {
     pred <- predict(best, data[folds==j,], id=i)
     
     
-    cv_errors[j, i] <- mean((temp_data$registered[folds==j]-pred)^2)
+    cv_errors[j, i] <- mean((data$registered[folds==j]-pred)^2)
   }
 }
 
@@ -172,9 +172,10 @@ min = which.min(mean_cv_errors)
 #the model w/ 14 variables was best when using 4 fold cv.
 #i did 4 fold because there are only about 80 rows of data per weekday
 
-best_full <- regsubsets(registered ~ ., 
-                     data=temp_data[folds!=j,], nvmax=20)
-
+best <- regsubsets(registered ~ ., 
+                     data=data, nvmax=20)
+coef(best, min)
+coef(best, 16)
 ```
 
 ```{r}
