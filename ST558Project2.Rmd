@@ -23,7 +23,11 @@ library(leaps)
 ```
 
 # Introduction
+<<<<<<< HEAD
 The data set this program analyzes can be found [here](https://archive.ics.uci.edu/ml/datasets/Bike+Sharing+Dataset). The data describes its volume of riders by a few dimensions: 
+=======
+...
+>>>>>>> a65cc61ed2e93602250ed363f0d17b3e3b7ad869
 
 *  season
 *  day of the week
@@ -44,8 +48,7 @@ It is further broken down into three response variables:
 
 The split between casual and registered is important, because they behave completely differently, use the service on different days, times, holidays, etc. Often, their behavior is inverse of each other, though the registered rider group is largest portion of riders and would be the primary client of the business. Keeping in mind that the registered client represents the largest portion of the clientele, this program focuses on the registered metric and splits the behavior by each day of the week. 
 
-
-
+# Data
 We begin by reading in the data, changing the names of some factor levels, and filtering by day of week
 ```{r message = FALSE, warning = FALSE}
 day <- readr::read_csv("day.csv", col_types = cols(
@@ -165,19 +168,19 @@ summ_james <- dayTrain %>%
 # Modeling
 We will now fit two linear regression models, using differing approaches, with the goal of creating a model that does a good job of predicting the number of registered riders on any given day, based on the values of the predictor variables in the data set.  We will fit the models using the training data set that we partitioned above, and then test the accuracy of the models' predictions using the test data set.
 
-Linear regression estimates the effect of each predictor variable on the mean value of the response variable, with the other predictor variables held constant.  A linear regression model can be expressed as 
+Linear regression estimates the effect of each predictor variable on the mean value of the response variable, with the other predictor variables held constant.  A linear regression model can be expressed as  
 $$Y_i = \beta_0 + \beta_1X_{i1} + \beta_2X_{i2} + ... + \beta_pX_{ip} + E_i$$
 
-where $Y_i$ is the response, $i$ represents the observation number, $X_{ij}$ are the predictor variables, and $E_i$ is the normally distributed random error. The $\beta_j$ coefficents must be linear, but the predictor variables can be higher order terms (e.g. $x^2$) or interaction terms (e.g. $x_1x_2$).  Creating a model to estimate the response using observed data, we have
+where $Y_i$ is the response, $i$ represents the observation number, $X_{ij}$ are the predictor variables, and $E_i$ is the normally distributed random error. The $\beta_j$ coefficents must be linear, but the predictor variables can be higher order terms (e.g. $x^2$) or interaction terms (e.g. $x_1x_2$).  Creating a model to estimate the response using observed data, we have  
 $$\hat{y_i} = \hat\beta_0 + \hat\beta_1x_{i1} + \hat\beta_2x_{i2} + ... + \hat\beta_px_{ip}$$
 
-The $\hat\beta_j$ coefficients (estimates for $\beta_j$) are calculated for each predictor variable to minimize the residual sum of squares, using the observed values of $x_{ij}$ and $y_i$
+The $\hat\beta_j$ coefficients (estimates for $\beta_j$) are calculated for each predictor variable to minimize the residual sum of squares, using the observed values of $x_{ij}$ and $y_i$  
 $$min_{\beta_0, \beta_1, ..., \beta_p}\sum_{i=1}^{n}(y_i - \beta_0 - \beta_1x_{i1} - \beta_2x_{i2} - ... - \beta_px_{ip})^2$$
 
-The linear regression model can be used for inference, to understand the relationships between the predictor variables and the response, as well as for prediction of a mean response given new values of the predictor variables.  There are varying approaches to choosing which predictor variables to include in a linear regression model.  For our first linear regression model, we ....
+The linear regression model can be used for inference, to understand the relationships between the predictor variables and the response, as well as for prediction of a mean response given new values of the predictor variables.  There are varying approaches to choosing which predictor variables to include in a linear regression model.  For our first linear regression model, we ....  
 For our second linear regression model, we ....
 
-###First linear regression model
+### First linear regression model
 ```{r carr_bestsub, error = TRUE}
 library(leaps)
 
@@ -240,15 +243,31 @@ fit <- lm(registered ~ temp*hum,
                     -weekday, -atemp, -casual, -cnt))
 ```
 
+### Second linear regression model
+In this approach, we start with a full linear regression model that includes all of the predictor variables.  We will then reduce collinearity (correlation among predictor variables) by removing redundant predictors until we reach an optimal (lowest) AIC.  We will calculate the condition number ($\kappa$) for each of the candidate models, which is a measure of collinearity.  Roughly, $\kappa < 30$ is considered desirable.  Finally, we will choose among several variations of the optimal model (including various higher order terms) using cross validation (described below).
+
+We begin with the full model, which includes all of the predictors.  `holiday` and `workingday` are excluded for days of the week that include only one level of `holiday` and `workingday`, respectively.
 ```{r}
-names(dayTrain)
+mlrFull <- lm(registered ~ dteday + season +  yr + mnth + weathersit + temp + 
+                    atemp + hum + windspeed, dayTrain)
+if(length(unique(dayTrain$workingday)) != 1){
+  mlrFull <- update(mlrFull, . ~ . + workingday)
+}
+if(length(unique(dayTrain$holiday)) != 1){
+  mlrFull <- update(mlrFull, . ~ . + holiday)
+}
+
+summary(mlrFull)
+AIC(mlrFull)
+x <- model.matrix(mlrFull)[, -1]
+e <- eigen(t(x) %*% x)
+# e$val
+# condition number = sqrt(e$val[1]/min(e$val))
 ```
 
-### Second linear regression model
-In this approach, we start with a full linear regression model that includes all of the predictor variables.  We will then reduce collinearity (correlation among predictor variables) by removing redundant predictors until we reach an optimal (lowest) AIC.  We will calculate the condition number ($\kappa$) for each of the candidate models, which is a measure of collinearity.  Roughly, $\kappa < 30$ is considered desirable.  Finally, we will choose among several variations of the optimal model (including various higher order terms) using cross validation.  Cross validation subdivides the training set into 4 (in this case) folds, then fits a model using 3 of those folds, and tests its accuracy predicting on the 4th fold.  This is repeated 3 more times, so that each fold gets a turn as the test set.  Several measures of the performance of the model are returned.  We will choose the best model in terms of lowest Root Mean Squared Error.
+We see that $\kappa$ = `r round(sqrt(e$val[1]/min(e$val)), 2)`, which is a sign of high collinearity, so we begin removing insignificant predictors one at a time, each time checking to confirm that AIC declines, or at least that it increases only marginally.
 
-
-First, we view the correlations between the variables.  For days of the week that don't include any holidays, `?` will appear.
+To help in consideration of which variables to remove, we view the correlations.  For days of the week that don't include any holidays, `?` will appear in the `holiday` and `workingday` rows and columns.
 ```{r arthur_bestMLR, message = FALSE, warning = FALSE}
 dayNFCor <- cor(as.matrix(dayNF %>%
                             mutate(weekday = fct_recode(weekday, Sunday = "0", Monday = "1", Tuesday = "2", Wednesday = "3", Thursday = "4", Friday = "5", Saturday = "6")) %>%
@@ -259,154 +278,186 @@ corrplot(dayNFCor, type = "upper", tl.pos = "lt")
 corrplot(dayNFCor, type = "lower", method = "number", add = TRUE, diag = FALSE, tl.pos = "n")
 ```
 
-
+First, we remove `workingday`, as it is fully determined by the day of the week and the `holiday` variable, so adds nothing to the model. We also remove `temp`, as it is almost perfectly correlated with `atemp`, and `dteday`, which adds little if any predictive value beyond `yr` plus `mnth` plus `season`.
 ```{r}
-mlrFull <- lm(registered ~ dteday + season +  yr + mnth + holiday + workingday + 
-                weathersit + temp + atemp + hum + windspeed, dayTrain)
-sumary(mlrFull)
-AIC(mlrFull)
-x <- model.matrix(mlrFull)[, -1]
-e <- eigen(t(x) %*% x)
-# e$val
-# condition number =
-sqrt(e$val[1]/min(e$val))
-```
-
-
-
-
-```{r}
-#remove dteday (high collinearity, low p-value)
-mlr2 <- update(mlrFull, . ~ . - dteday)
+mlr2 <- update(mlrFull, . ~ . - workingday - temp - dteday)
 summary(mlr2)
 AIC(mlr2)
 x <- model.matrix(mlr2)[, -1]
 e <- eigen(t(x) %*% x)
 # e$val
-sqrt(e$val[1]/min(e$val))
-#reduced AIC and condition number
+# condition number = sqrt(e$val[1]/min(e$val))
+```
 
-#remove temp (high collinearity, low p-value)
-mlr3 <- update(mlr2, . ~ . - temp)
+We see that AIC has changed little, and that $\kappa$ = `r round(sqrt(e$val[1]/min(e$val)), 2)`, which indicates a large reduction in collinearity.
+
+
+`mnth`, `weathersit` and `windspeed` appear to be marginally significant, so we look at the effect of removing each of them from the model:  
+Remove `mnth`
+```{r}
+mlr3 <- update(mlr2, . ~ . - mnth)
 summary(mlr3)
 AIC(mlr3)
 x <- model.matrix(mlr3)[, -1]
 e <- eigen(t(x) %*% x)
 # e$val
-sqrt(e$val[1]/min(e$val))
-#reduced AIC and condition number
+# condition number = sqrt(e$val[1]/min(e$val))
+```
 
-#remove workingday (high collinearity, low p-value)
-mlr4 <- update(mlr3, . ~ . - workingday)
-summary(mlr4)
+Remove `weathersit`
+```{r}
+mlr4 <- update(mlr2, . ~ . - weathersit)
+# summary(mlr4)
 AIC(mlr4)
 x <- model.matrix(mlr4)[, -1]
 e <- eigen(t(x) %*% x)
 # e$val
-sqrt(e$val[1]/min(e$val))
-#reduced AIC and condition number
+# condition # =
+# sqrt(e$val[1]/min(e$val))
+```
 
-#remove season (high collinearity, low p-value)
-mlr5 <- update(mlr4, . ~ . - season)
-summary(mlr5)
+Remove `windspeed`
+```{r}
+mlr5 <- update(mlr2, . ~ . - windspeed)
+# summary(mlr5)
 AIC(mlr5)
-#don't remove season because AIC increased
-
-#remove month (high collinearity, low p-value)
-mlr6 <- update(mlr4, . ~ . - mnth)
-summary(mlr6)
-AIC(mlr6)
-x <- model.matrix(mlr6)[, -1]
+x <- model.matrix(mlr5)[, -1]
 e <- eigen(t(x) %*% x)
 # e$val
-sqrt(e$val[1]/min(e$val))
-#reduced AIC and condition number
+# condition # =
+# sqrt(e$val[1]/min(e$val))
+```
 
-#remove year from full model instead of dteday (high collinearity)
-mlr7 <- update(mlrFull, . ~ . - yr - workingday - temp, dayTrain)
-summary(mlr7)
-AIC(mlr7)
-x <- model.matrix(mlr7)[, -1]
-e <- eigen(t(x) %*% x)
-# e$val
-sqrt(e$val[1]/min(e$val))
-#higher AIC than mlr4
+For `mnth`, `weathersit`, and `windspeed`, removal from the model results in only marginal change to AIC.  If our main goal were inference and understanding the relationships between the variables, we might want to remove them from the model for the sake of simplicity, interpretability, and more narrow confidence intervals.  Because our primary goal here is prediction, we will leave them in the model, and choose mlr2 as our base linear regression model.
 
-#compare to model chosen by leaps::step() function
+We will now do some diagnostic plots on our base model, and then consider adding higher order terms to the model.
+```{r}
+# compare to model chosen by leaps::step() function
 mlrStep <- step(mlrFull)
 names(mlrStep)
 mlrStep$call
-mlr6$call
-AIC(mlr6, mlrStep)
-#my choice agrees with step() choice
+mlr2$call
+AIC(mlr2, mlrStep)
+# does mlr3  agrees with step() choice?
+```
 
-#diagnostics plot
-plot(mlr6$fitted, mlr6$residuals)
-#indication of mild nonconstant variance
-MASS::boxcox(mlr6)
-#Box-Cox lambda close to 1, so no need for transformation of response
+We can check for constant variance of our error term, an assumption of our model, by looking at a plot of the model's fitted values vs the residuals (difference between fitted response and observed response).  A "megaphone" shape can indicate non-constant variance.
+```{r}
+plot(mlr2$fitted, mlr3$residuals)
+```
 
-#look for nonlinearity with partial residuals plots
-termplot(mlr6, partial.resid = TRUE)
-#atemp, hum, and windspeed look somewhat nonlinear, so try quadratic terms for them
-mlr8 <- update(mlr6, . ~ . + I(atemp^2))
+Another way to assess constant variance is with the Box-Cox method, which can suggest transformations of the response to address problems with non-constant variance.  If the maximum log-likelihood of $\lambda$ close to 1, as in this case, indicates that non-constant variance is not a problem with the existing model.
+```{r}
+MASS::boxcox(mlr2)
+```
+
+We will also look at for signs of nonlinearity, which can indicate the need for quadratic terms for some of the predictors.  The partial residual plots below plot the relationship between each predictor and the response, with the effect of the other predictors removed.
+```{r}
+termplot( mlr2, partial.resid = TRUE, terms = c("atemp", "windspeed", "hum"))
+```
+
+For at least some days of the week there is a nonlinear pattern to the plots, particularly for `atemp`, so we will try adding quadratic terms for each of them to our base model.
+
+Try adding $atemp^2$
+```{r}
+mlr8 <- update(mlr2, . ~ . + I(atemp^2))
 summary(mlr8)
 AIC(mlr8)
-#improved AIC, so keep atemp^2 in model
+```
 
+Reduced or similar AIC, so keep mlr8 as new base model.
+
+Try adding $hum^2$
+```{r}
 mlr9 <- update(mlr8, . ~ . + I(hum^2))
 summary(mlr9)
 AIC(mlr9)
-#improved AIC, so keep hum^2 in model
+```
 
-mlr10 <- update(mlr9, . ~ . + I(windspeed^2))
+Similar AIC for most days of week, so keep mlr9 as a candidate model to compare using cross validation.
+
+Try adding $windspeed^2$
+```{r}
+mlr10 <- update(mlr8, . ~ . + I(windspeed^2))
 summary(mlr10)
 AIC(mlr10)
-#slightly improved AIC, compare using cross validation
+```
 
-#interaction of weather vars w/ holiday seems possible, so try adding to model
-mlr11 <- update(mlr9, . ~ . + weathersit:holiday)
+Similar AIC for most days of week, so keep mlr10 as a candidate model to compare using cross validation.
+
+Try including all 3 quadratic terms
+```{r}
+mlr11 <- update(mlr8, . ~ . + I(hum^2) + I(windspeed^2))
 summary(mlr11)
 AIC(mlr11)
-#slightly worse AIC, compare using cross validation
-mlr12 <- update(mlr9, . ~ . + atemp:holiday)
-summary(mlr12)
-AIC(mlr12)
-#marginal decrease in AIC, compare using cross validation
+```
 
-#fit best candidate models using cross validation w/ caret package
-mlrFit9 <- train(registered ~ season + yr + holiday + weathersit + atemp + hum + windspeed + I(atemp^2) + I(hum^2), data = dayTrain,
-    method = "lm",
-    preProcess = c("center", "scale"),
-    trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3))
+Similar AIC for most days of week, so keep mlr11 as a candidate model to compare using cross validation.
 
-mlrFit10 <- train(registered ~ season + yr + holiday + weathersit + atemp + hum + windspeed + I(atemp^2) + I(hum^2)+ I(windspeed^2), data = dayTrain,
-    method = "lm",
-    preProcess = c("center", "scale"),
-    trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3))
+We will now compare the 4 candidate models using cross validation.    Cross validation subdivides the training set into $k$ folds, then fits a model using $k - 1$ of those folds, and tests its accuracy predicting on the $k^{th}$ fold.  This is repeated $k - 1$ more times, so that each fold gets a turn as the test set.  Several measures of the performance of the model are returned.  We will choose the best model in terms of lowest Root Mean Squared Error.
+```{r message = FALSE, warning = FALSE}
+if(length(unique(dayTrain$holiday)) != 1){
+  mlrFit8 <- train(registered ~ season + yr + mnth + holiday + weathersit + atemp + hum + windspeed + I(atemp^2), data = dayTrain,
+      method = "lm",
+      preProcess = c("center", "scale"),
+      trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3))
+  
+  mlrFit9 <- train(registered ~ season + yr + mnth + holiday + weathersit + atemp + hum + windspeed + I(atemp^2) + I(hum^2), data = dayTrain,
+      method = "lm",
+      preProcess = c("center", "scale"),
+      trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3))
+  
+  mlrFit10 <- train(registered ~ season + yr + mnth + holiday + weathersit + atemp + hum + windspeed + I(atemp^2) + I(windspeed^2), data = dayTrain,
+      method = "lm",
+      preProcess = c("center", "scale"),
+      trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3))
+  
+  mlrFit11 <- train(registered ~ season + yr + mnth + holiday + weathersit + atemp + hum + windspeed + I(atemp^2) + I(hum^2)+ I(windspeed^2), data = dayTrain,
+      method = "lm",
+      preProcess = c("center", "scale"),
+      trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3))
+}else{
+  mlrFit8 <- train(registered ~ season + yr + mnth + weathersit + atemp + hum + windspeed + I(atemp^2), data = dayTrain,
+      method = "lm",
+      preProcess = c("center", "scale"),
+      trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3))
+  
+  mlrFit9 <- train(registered ~ season + yr + mnth + weathersit + atemp + hum + windspeed + I(atemp^2) + I(hum^2), data = dayTrain,
+      method = "lm",
+      preProcess = c("center", "scale"),
+      trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3))
+  
+  mlrFit10 <- train(registered ~ season + yr + mnth + weathersit + atemp + hum + windspeed + I(atemp^2) + I(windspeed^2), data = dayTrain,
+      method = "lm",
+      preProcess = c("center", "scale"),
+      trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3))
+  
+  mlrFit11 <- train(registered ~ season + yr + mnth + weathersit + atemp + hum + windspeed + I(atemp^2) + I(hum^2)+ I(windspeed^2), data = dayTrain,
+      method = "lm",
+      preProcess = c("center", "scale"),
+      trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3))
+}
+comparison <- data.frame(t(mlrFit8$results), t(mlrFit9$results), t(mlrFit10$results), t(mlrFit11$results))
+colnames(comparison) <- c("mlrFit8", "mlrFit9", "mlrFit10", "mlrFit11")
+kable(comparison)
 
-mlrFit11 <- train(registered ~ season + yr + holiday + weathersit + atemp + hum + windspeed + I(atemp^2) + I(hum^2) + holiday:weathersit, data = dayTrain,
-    method = "lm",
-    preProcess = c("center", "scale"),
-    trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3))
-
-mlrFit12 <- train(registered ~ season + yr + holiday + weathersit + atemp + hum + windspeed + I(atemp^2) + I(hum^2) + holiday:atemp, data = dayTrain,
-    method = "lm",
-    preProcess = c("center", "scale"),
-    trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3))
-
-names(mlrFit9)
-comparison <- data.frame(t(mlrFit9$results), t(mlrFit10$results), t(mlrFit11$results), t(mlrFit12$results))
-colnames(comparison) <- c("mlrFit9", "mlrFit10", "mlrFit11", "mlrFit12")
-comparison
-#The lowest RMSE out of the 4 candidate models varies each time I run cross validation, so I will choose the simplest of the 4, mlrFit9
-mlrBest <- mlrFit9
-
-# for potentially automating choice of model
-# which.min(c(mlrFit9$results["RMSE"], mlrFit10$results["RMSE"], mlrFit11$results["RMSE"], mlrFit12$results["RMSE"]))
 ```
 
 
+Save the model with the lowest RMSE as our second linear regression model.
+```{r}
+candidates <- list(mlrFit8 = mlrFit8, mlrFit9 = mlrFit9, mlrFit10 = mlrFit10, mlrFit11 = mlrFit11)
+indexLowestRMSE <- which.min(c(candidates[[1]][["results"]]["RMSE"], candidates[[2]][["results"]]["RMSE"], candidates[[3]][["results"]]["RMSE"], candidates[[4]][["results"]]["RMSE"]))
+mlrFinal2 <- candidates[[1]]
+mlrFinal2$call
+```
+
+The model with the lowest RMSE for `r params$dayOfWeek` is `r names(candidates)[indexLowestRMSE]`
+
+
+### Random Forest Model
+Intro to Random Forest
+...
 ```{r random_forest, message = FALSE, warning = FALSE}
 rfFit <- train(registered ~ . - instant - casual - cnt, data = dayTrain,
                method = "rf",
@@ -414,6 +465,16 @@ rfFit <- train(registered ~ . - instant - casual - cnt, data = dayTrain,
                preProcess = c("center", "scale"),
                tuneGrid = expand.grid(mtry = c(2, 7, 10:16, 20, 24)))
 rfFit
+```
+# Comparison of models
+Discussion
+...
+```{r}
+# declaration of "winner" needs to be automated
+mlrFinal2Pred <- predict(mlrFinal2, newdata = dayTest)
+rfFitPred <- predict(rfFit, newdata = dayTest)
+postResample(mlrFinal2Pred, dayTest$registered)
+postResample(rfFitPred, dayTest$registered)
 ```
 
 I added an initial version of my MLR and random forest models, and wrote a separate R script (ST558RenderProject2.r) to automate the reports for each day of the week.  There's still plenty of clean-up to do with the output, but the automation generally seems to be working.  Since the dataset now includes only one weekday at a time, some of our graphs, tables, etc. that included weekday don't make as much sense.  I still have some questions about whether we're supposed to do any initial data exploration with the full training set, or if we only work with one day at a time.  I might post a question on the discussion board or go to Wednesday office hours unless it's clear to you.

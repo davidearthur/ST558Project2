@@ -3,7 +3,24 @@ ST 558 Project 2
 David Arthur
 6/28/2021
 
-Read in data, filter by day of week
+-   [Introduction](#introduction)
+-   [Data](#data)
+-   [Summarizations](#summarizations)
+-   [Modeling](#modeling)
+    -   [First linear regression model](#first-linear-regression-model)
+    -   [Second linear regression
+        model](#second-linear-regression-model)
+    -   [Random Forest Model](#random-forest-model)
+-   [Comparison of models](#comparison-of-models)
+
+# Introduction
+
+…
+
+# Data
+
+We begin by reading in the data, changing the names of some factor
+levels, and filtering by day of week
 
 ``` r
 day <- readr::read_csv("day.csv", col_types = cols(
@@ -20,15 +37,13 @@ day <- day %>% mutate(season = fct_recode(season, winter = "1", spring = "2", su
   mutate(weekday = fct_recode(weekday, Sunday = "0", Monday = "1", Tuesday = "2", Wednesday = "3", Thursday = "4", Friday = "5", Saturday = "6")) %>%
   mutate(weathersit = fct_recode(weathersit, clear = "1", mist = "2", lightRainOrSnow = "3", heavyRainOrSnow = "4")) %>%
   filter(weekday == params$dayOfWeek)
+
+# read in version without factors for correlation plot
+dayNF <- readr::read_csv("day.csv", col_types = cols(
+  weekday = col_factor()))
 ```
 
-    ## Warning: Unknown levels in `f`: 4
-
-``` r
-dayNF <- readr::read_csv("day.csv")
-```
-
-Partition data into training and test sets
+Next, we partition the data into training and test sets
 
 ``` r
 set.seed(21)
@@ -37,10 +52,15 @@ dayTrain <- day[trainIndex, ]
 dayTest <- day[-trainIndex, ]
 ```
 
-Exploratory data analysis and summary (David)
+# Summarizations
+
+We begin our exploratory analysis of the data with a graphical overview
+of the relationships between variables. Obvious patterns in the plots,
+as well as high correlation values, indicate associations between
+variables.
 
 ``` r
-GGally::ggpairs(dayTrain %>% select(3:9, atemp, windspeed, casual, registered, cnt))
+GGally::ggpairs(dayTrain %>% select(2:6, 8:9, atemp, windspeed, registered, casual))
 ```
 
 ![](Thursday_files/figure-gfm/unnamed-chunk-3-1.png)<!-- -->
@@ -51,7 +71,12 @@ GGally::ggpairs(dayTrain %>% select(3:9, atemp, windspeed, casual, registered, c
 # corrplot(dayNFCor, type = "lower", method = "number", add = TRUE, diag = FALSE, tl.pos = "n")
 ```
 
-Exploration of individual predictors
+We will now look in more detail at relationships between time-related
+variables and the `registered` response variable. When we do our linear
+regression modeling we will need to decide which (if any) of these
+predictors to use. For example, the date variable (`dteday`) and
+`season` may not be useful in the presence of `weekday`, `mnth`, and
+`yr` (or vice versa), as they provide largely redundant information.
 
 ``` r
 g <- ggplot(data = dayTrain)
@@ -61,46 +86,52 @@ g + geom_point(aes(x = dteday, y = registered))
 ![](Thursday_files/figure-gfm/unnamed-chunk-4-1.png)<!-- -->
 
 ``` r
-meanByMonth <- dayTrain %>% group_by(mnth) %>%
-  summarize(meanCas = mean(casual), meanReg = mean(registered), meanTotal = mean(cnt))
-g2 <- ggplot(meanByMonth, aes(x = mnth))
-g2 + geom_bar(aes(y = meanCas), stat = "identity")
+meanByMonthYr <- dayTrain %>% group_by(mnth, yr) %>%
+  summarize(meanReg = mean(registered))
+```
+
+    ## `summarise()` has grouped output by 'mnth'. You can override using the `.groups` argument.
+
+``` r
+g2 <- ggplot(meanByMonthYr, aes(x = mnth))
+g2 + geom_bar(aes(y = meanReg, fill = yr), position = "dodge", stat = "identity")
 ```
 
 ![](Thursday_files/figure-gfm/unnamed-chunk-4-2.png)<!-- -->
 
-``` r
-g2 + geom_bar(aes(y = meanReg), stat = "identity")
-```
-
-![](Thursday_files/figure-gfm/unnamed-chunk-4-3.png)<!-- -->
-
-``` r
-g2 + geom_bar(aes(y = meanTotal), stat = "identity")
-```
-
-![](Thursday_files/figure-gfm/unnamed-chunk-4-4.png)<!-- -->
+We will look next in more detail at the relationship between
+quantitative weather variables and the `registered` response variable.
+The appearance of nonlinear relationships in the plots may indicate the
+need for quadratic terms in our linear regression models. The adjusted
+temperature variable, `atemp`, seems particularly likely to require a
+quadratic term, as both low and high temperatures can discourage people
+from bicycling. Similarly, with humidity and windspeed, low to moderate
+values may have no effect, but particularly high values could have an
+effect, so those variables may also require quadratic terms.
 
 ``` r
-meanByYear <- dayTrain %>% group_by(yr) %>%
-  summarize(meanCas = mean(casual), meanReg = mean(registered), meanTotal = mean(cnt))
-g2 <- ggplot(meanByYear, aes(x = yr))
-g2 + geom_bar(aes(y = meanCas), stat = "identity")
+g + geom_point(aes(x = atemp, y = registered)) + facet_wrap(~ yr)
 ```
 
-![](Thursday_files/figure-gfm/unnamed-chunk-4-5.png)<!-- -->
+![](Thursday_files/figure-gfm/unnamed-chunk-5-1.png)<!-- -->
 
 ``` r
-g2 + geom_bar(aes(y = meanReg), stat = "identity")
+g + geom_point(aes(x = hum, y = registered)) + facet_wrap(~ yr)
 ```
 
-![](Thursday_files/figure-gfm/unnamed-chunk-4-6.png)<!-- -->
+![](Thursday_files/figure-gfm/unnamed-chunk-5-2.png)<!-- -->
 
 ``` r
-g2 + geom_bar(aes(y = meanTotal), stat = "identity")
+g + geom_point(aes(x = windspeed, y = registered)) + facet_wrap(~ yr)
 ```
 
-![](Thursday_files/figure-gfm/unnamed-chunk-4-7.png)<!-- -->
+![](Thursday_files/figure-gfm/unnamed-chunk-5-3.png)<!-- -->
+
+We now view at a table displaying the mean number of `registered`,
+`casual`, and total riders at each level of the categorical `weathersit`
+variable. It seems plausible that in rain or snow, the number of casual
+riders might decrease by a larger factor than would the number of
+registered riders.
 
 ``` r
 meanByWeather <- dayTrain %>% group_by(weathersit) %>%
@@ -116,23 +147,10 @@ kable(meanByWeather, digits = 1, col.names = c("Weather", "Mean Casual Riders", 
 
 Average \# of riders by weather category
 
-``` r
-meanByHoliday <- dayTrain %>% filter(workingday == 0) %>%
-  group_by(holiday) %>%
-  summarize(meanCas = mean(casual), meanReg = mean(registered), meanTotal = mean(cnt))
-kable(meanByHoliday, digits = 1, col.names = c("Holiday (0 = no, 1 = yes)", "Mean Casual Riders", "Mean Registered Riders", "Mean Total Riders"), caption = "Average # of riders on holidays vs. non-holiday non-workdays")
-```
-
-| Holiday (0 = no, 1 = yes) | Mean Casual Riders | Mean Registered Riders | Mean Total Riders |
-|:--------------------------|-------------------:|-----------------------:|------------------:|
-| 1                         |              757.5 |                 1202.5 |              1960 |
-
-Average \# of riders on holidays vs. non-holiday non-workdays
-
 Exploratory data analysis and summary (James)
 
 ``` r
-ggpairs(dayTrain %>% select(-instant,-dteday, -season, -yr, -cnt), 
+ggpairs(dayTrain %>% select(-instant,-dteday, -season, -yr, -cnt, -weekday), 
         ggplot2::aes(colour=workingday))
 ```
 
@@ -163,7 +181,7 @@ g <- ggplot(data=dayTrain, aes(x=registered, y=casual))
 g + geom_point(aes(color=workingday))
 ```
 
-![](Thursday_files/figure-gfm/unnamed-chunk-5-1.png)<!-- --> On working
+![](Thursday_files/figure-gfm/unnamed-chunk-7-1.png)<!-- --> On working
 days, registered bikes are the main rider group. On non-working days, it
 switches to casual. Looking at day of the week, we may be able to
 exclude it since it will be covered by the working day flag and holiday
@@ -187,7 +205,7 @@ g <- ggplot(data=dayTrain %>%
 g + geom_bar(stat='identity', position='dodge')
 ```
 
-![](Thursday_files/figure-gfm/unnamed-chunk-6-1.png)<!-- --> Looking at
+![](Thursday_files/figure-gfm/unnamed-chunk-8-1.png)<!-- --> Looking at
 this graph, weekday definitely seems relatively stable across the days
 (working days for registered and non-working days for casual are the
 jumps), but there may be enough variation to include it.
@@ -210,6 +228,45 @@ analysis for that company then registered users would be the most
 important group.
 
 \#\#Sounds good, we’ll go with registered.
+
+# Modeling
+
+We will now fit two linear regression models, using differing
+approaches, with the goal of creating a model that does a good job of
+predicting the number of registered riders on any given day, based on
+the values of the predictor variables in the data set. We will fit the
+models using the training data set that we partitioned above, and then
+test the accuracy of the models’ predictions using the test data set.
+
+Linear regression estimates the effect of each predictor variable on the
+mean value of the response variable, with the other predictor variables
+held constant. A linear regression model can be expressed as  
+*Y*<sub>*i*</sub> = *β*<sub>0</sub> + *β*<sub>1</sub>*X*<sub>*i*1</sub> + *β*<sub>2</sub>*X*<sub>*i*2</sub> + ... + *β*<sub>*p*</sub>*X*<sub>*i**p*</sub> + *E*<sub>*i*</sub>
+
+where *Y*<sub>*i*</sub> is the response, *i* represents the observation
+number, *X*<sub>*i**j*</sub> are the predictor variables, and
+*E*<sub>*i*</sub> is the normally distributed random error. The
+*β*<sub>*j*</sub> coefficents must be linear, but the predictor
+variables can be higher order terms (e.g. *x*<sup>2</sup>) or
+interaction terms (e.g. *x*<sub>1</sub>*x*<sub>2</sub>). Creating a
+model to estimate the response using observed data, we have  
+$$\\hat{y\_i} = \\hat\\beta\_0 + \\hat\\beta\_1x\_{i1} + \\hat\\beta\_2x\_{i2} + ... + \\hat\\beta\_px\_{ip}$$
+
+The *β̂*<sub>*j*</sub> coefficients (estimates for *β*<sub>*j*</sub>) are
+calculated for each predictor variable to minimize the residual sum of
+squares, using the observed values of *x*<sub>*i**j*</sub> and
+*y*<sub>*i*</sub>  
+$$min\_{\\beta\_0, \\beta\_1, ..., \\beta\_p}\\sum\_{i=1}^{n}(y\_i - \\beta\_0 - \\beta\_1x\_{i1} - \\beta\_2x\_{i2} - ... - \\beta\_px\_{ip})^2$$
+
+The linear regression model can be used for inference, to understand the
+relationships between the predictor variables and the response, as well
+as for prediction of a mean response given new values of the predictor
+variables. There are varying approaches to choosing which predictor
+variables to include in a linear regression model. For our first linear
+regression model, we ….  
+For our second linear regression model, we ….
+
+### First linear regression model
 
 ``` r
 library(leaps)
@@ -282,33 +339,39 @@ fit <- lm(registered ~ temp*hum,
                     -weekday, -atemp, -casual, -cnt))
 ```
 
+### Second linear regression model
+
+In this approach, we start with a full linear regression model that
+includes all of the predictor variables. We will then reduce
+collinearity (correlation among predictor variables) by removing
+redundant predictors until we reach an optimal (lowest) AIC. We will
+calculate the condition number (*κ*) for each of the candidate models,
+which is a measure of collinearity. Roughly, *κ* &lt; 30 is considered
+desirable. Finally, we will choose among several variations of the
+optimal model (including various higher order terms) using cross
+validation (described below).
+
+We begin with the full model, which includes all of the predictors.
+`holiday` and `workingday` are excluded for days of the week that
+include only one level of `holiday` and `workingday`, respectively.
+
 ``` r
-names(dayTrain)
-```
+mlrFull <- lm(registered ~ dteday + season +  yr + mnth + weathersit + temp + 
+                    atemp + hum + windspeed, dayTrain)
+if(length(unique(dayTrain$workingday)) != 1){
+  mlrFull <- update(mlrFull, . ~ . + workingday)
+}
+if(length(unique(dayTrain$holiday)) != 1){
+  mlrFull <- update(mlrFull, . ~ . + holiday)
+}
 
-    ##  [1] "instant"    "dteday"     "season"     "yr"         "mnth"       "holiday"    "weekday"   
-    ##  [8] "workingday" "weathersit" "temp"       "atemp"      "hum"        "windspeed"  "casual"    
-    ## [15] "registered" "cnt"
-
-``` r
-# GGally::ggpairs(dayTrain %>% select(3:9, atemp, windspeed, casual, registered, cnt))
-dayNFCor <- cor(as.matrix(dayNF %>% select(3:13, registered)))
-corrplot(dayNFCor, type = "upper", tl.pos = "lt")
-corrplot(dayNFCor, type = "lower", method = "number", add = TRUE, diag = FALSE, tl.pos = "n")
-```
-
-![](Thursday_files/figure-gfm/arthur_bestMLR-1.png)<!-- -->
-
-``` r
-mlrFull <- lm(registered ~ dteday + season +  yr + mnth + holiday + workingday + weathersit + temp + atemp + hum + windspeed, dayTrain)
 summary(mlrFull)
 ```
 
     ## 
     ## Call:
-    ## lm(formula = registered ~ dteday + season + yr + mnth + holiday + 
-    ##     workingday + weathersit + temp + atemp + hum + windspeed, 
-    ##     data = dayTrain)
+    ## lm(formula = registered ~ dteday + season + yr + mnth + weathersit + 
+    ##     temp + atemp + hum + windspeed + workingday + holiday, data = dayTrain)
     ## 
     ## Residuals:
     ##    Min     1Q Median     3Q    Max 
@@ -316,7 +379,7 @@ summary(mlrFull)
     ## 
     ## Coefficients: (1 not defined because of singularities)
     ##                             Estimate Std. Error t value Pr(>|t|)    
-    ## (Intercept)               123609.009 106544.104   1.160  0.25128    
+    ## (Intercept)               120436.785 106637.282   1.129  0.26391    
     ## dteday                        -8.143      7.104  -1.146  0.25693    
     ## seasonspring                 766.418    349.363   2.194  0.03275 *  
     ## seasonsummer                 743.338    415.673   1.788  0.07956 .  
@@ -333,14 +396,14 @@ summary(mlrFull)
     ## mnth10                      2937.633   1937.159   1.516  0.13546    
     ## mnth11                      2595.863   2131.314   1.218  0.22874    
     ## mnth12                      2680.140   2358.867   1.136  0.26108    
-    ## holiday1                   -3172.224    419.199  -7.567 6.18e-10 ***
-    ## workingday1                       NA         NA      NA       NA    
     ## weathersitclear              212.561    169.538   1.254  0.21553    
     ## weathersitlightRainOrSnow  -2286.597    443.234  -5.159 3.94e-06 ***
     ## temp                        6354.174   4078.506   1.558  0.12531    
     ## atemp                      -1689.596   4271.818  -0.396  0.69408    
     ## hum                        -1707.626    595.705  -2.867  0.00598 ** 
     ## windspeed                  -1724.172    956.500  -1.803  0.07725 .  
+    ## workingday1                 3172.224    419.199   7.567 6.18e-10 ***
+    ## holiday1                          NA         NA      NA       NA    
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
     ## 
@@ -357,364 +420,112 @@ AIC(mlrFull)
 ``` r
 x <- model.matrix(mlrFull)[, -1]
 e <- eigen(t(x) %*% x)
-e$val
+# e$val
+# condition number = sqrt(e$val[1]/min(e$val))
 ```
 
-    ##  [1] 1.788472e+10 2.760987e+01 2.686190e+01 2.027376e+01 1.562548e+01 9.881436e+00 7.597682e+00
-    ##  [8] 7.035282e+00 6.708632e+00 6.201279e+00 5.854714e+00 5.320927e+00 4.185074e+00 2.595491e+00
-    ## [15] 2.292680e+00 1.928540e+00 1.085631e+00 8.714965e-01 7.657593e-01 4.147777e-01 2.514482e-01
-    ## [22] 8.868215e-02 7.041800e-03 1.024397e-05
+We see that *κ* = 4.1783708^{7}, which is a sign of high collinearity,
+so we begin removing insignificant predictors one at a time, each time
+checking to confirm that AIC declines, or at least that it increases
+only marginally.
+
+To help in consideration of which variables to remove, we view the
+correlations. For days of the week that don’t include any holidays, `?`
+will appear in the `holiday` and `workingday` rows and columns.
 
 ``` r
-sqrt(e$val[1]/min(e$val))
+dayNFCor <- cor(as.matrix(dayNF %>%
+                            mutate(weekday = fct_recode(weekday, Sunday = "0", Monday = "1", Tuesday = "2", Wednesday = "3", Thursday = "4", Friday = "5", Saturday = "6")) %>%
+                            mutate(dteday = as.numeric(dteday)) %>%
+                            filter(weekday == params$dayOfWeek) %>%
+                            select(2:6, 8:13, registered)))
+corrplot(dayNFCor, type = "upper", tl.pos = "lt")
+corrplot(dayNFCor, type = "lower", method = "number", add = TRUE, diag = FALSE, tl.pos = "n")
 ```
 
-    ## [1] 41783708
+![](Thursday_files/figure-gfm/arthur_bestMLR-1.png)<!-- -->
+
+First, we remove `workingday`, as it is fully determined by the day of
+the week and the `holiday` variable, so adds nothing to the model. We
+also remove `temp`, as it is almost perfectly correlated with `atemp`,
+and `dteday`, which adds little if any predictive value beyond `yr` plus
+`mnth` plus `season`.
 
 ``` r
-vif(x)
-```
-
-    ##                    dteday              seasonspring              seasonsummer                seasonfall 
-    ##                743.791453                  7.716982                 11.265750                  7.690314 
-    ##                    yr2012                     mnth2                     mnth3                     mnth4 
-    ##                557.300672                  2.510482                  9.116165                 18.155088 
-    ##                     mnth5                     mnth6                     mnth7                     mnth8 
-    ##                 28.753999                 29.952952                 47.650041                 58.687222 
-    ##                     mnth9                    mnth10                    mnth11                    mnth12 
-    ##                104.056519                 46.392757                139.498307                131.926336 
-    ##                  holiday1               workingday1           weathersitclear weathersitlightRainOrSnow 
-    ##                       Inf                       Inf                  2.068797                  1.641356 
-    ##                      temp                     atemp                       hum                 windspeed 
-    ##                166.656236                144.740504                  2.503377                  1.780274
-
-``` r
-#remove dteday (high collinearity, low p-value)
-mlr2 <- update(mlrFull, . ~ . - dteday)
+mlr2 <- update(mlrFull, . ~ . - workingday - temp - dteday)
 summary(mlr2)
 ```
 
     ## 
     ## Call:
-    ## lm(formula = registered ~ season + yr + mnth + holiday + workingday + 
-    ##     weathersit + temp + atemp + hum + windspeed, data = dayTrain)
+    ## lm(formula = registered ~ season + yr + mnth + weathersit + atemp + 
+    ##     hum + windspeed + holiday, data = dayTrain)
     ## 
     ## Residuals:
     ##     Min      1Q  Median      3Q     Max 
-    ## -1056.4  -289.4    62.9   321.8   750.1 
+    ## -955.44 -226.30   66.09  290.61  751.01 
     ## 
-    ## Coefficients: (1 not defined because of singularities)
+    ## Coefficients:
     ##                           Estimate Std. Error t value Pr(>|t|)    
-    ## (Intercept)                1482.32     589.27   2.516  0.01495 *  
-    ## seasonspring                764.56     350.39   2.182  0.03356 *  
-    ## seasonsummer                735.99     416.85   1.766  0.08322 .  
-    ## seasonfall                 1072.03     368.39   2.910  0.00527 ** 
-    ## yr2012                     1888.00     120.24  15.701  < 2e-16 ***
-    ## mnth2                        50.82     288.71   0.176  0.86095    
-    ## mnth3                        64.88     401.13   0.162  0.87212    
-    ## mnth4                      -316.94     528.56  -0.600  0.55131    
-    ## mnth5                       101.06     595.04   0.170  0.86578    
-    ## mnth6                      -432.87     659.87  -0.656  0.51467    
-    ## mnth7                      -769.54     695.84  -1.106  0.27376    
-    ## mnth8                      -334.47     658.21  -0.508  0.61346    
-    ## mnth9                       396.86     562.12   0.706  0.48328    
-    ## mnth10                      803.07     535.33   1.500  0.13951    
-    ## mnth11                      211.59     466.15   0.454  0.65174    
-    ## mnth12                       10.60     375.99   0.028  0.97761    
-    ## holiday1                  -3278.19     410.09  -7.994 1.14e-10 ***
-    ## workingday1                     NA         NA      NA       NA    
-    ## weathersitclear             253.64     166.20   1.526  0.13291    
-    ## weathersitlightRainOrSnow -2195.80     437.39  -5.020 6.18e-06 ***
-    ## temp                       5392.45    4003.08   1.347  0.18369    
-    ## atemp                      -760.21    4206.57  -0.181  0.85728    
-    ## hum                       -1699.14     597.42  -2.844  0.00631 ** 
-    ## windspeed                 -1560.50     948.58  -1.645  0.10587    
+    ## (Intercept)                1257.08     569.30   2.208  0.03150 *  
+    ## seasonspring                780.55     352.82   2.212  0.03120 *  
+    ## seasonsummer                818.73     415.40   1.971  0.05387 .  
+    ## seasonfall                 1105.77     370.30   2.986  0.00424 ** 
+    ## yr2012                     1895.55     121.02  15.664  < 2e-16 ***
+    ## mnth2                        76.26     290.26   0.263  0.79376    
+    ## mnth3                        85.92     403.84   0.213  0.83233    
+    ## mnth4                      -268.66     531.31  -0.506  0.61515    
+    ## mnth5                       227.18     592.04   0.384  0.70269    
+    ## mnth6                      -199.22     641.45  -0.311  0.75732    
+    ## mnth7                      -643.14     694.67  -0.926  0.35866    
+    ## mnth8                      -143.00     647.51  -0.221  0.82604    
+    ## mnth9                       533.42     557.06   0.958  0.34255    
+    ## mnth10                      849.90     538.21   1.579  0.12015    
+    ## mnth11                      209.82     469.65   0.447  0.65684    
+    ## mnth12                       45.60     377.91   0.121  0.90440    
+    ## weathersitclear             279.85     166.29   1.683  0.09818 .  
+    ## weathersitlightRainOrSnow -2059.04     428.64  -4.804 1.28e-05 ***
+    ## atemp                      4734.69    1035.30   4.573 2.84e-05 ***
+    ## hum                       -1545.64     590.86  -2.616  0.01151 *  
+    ## windspeed                 -1256.83     928.33  -1.354  0.18142    
+    ## holiday1                  -3297.68     412.91  -7.986 1.04e-10 ***
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
     ## 
-    ## Residual standard error: 484.2 on 53 degrees of freedom
-    ## Multiple R-squared:  0.9404, Adjusted R-squared:  0.9156 
-    ## F-statistic: 37.99 on 22 and 53 DF,  p-value: < 2.2e-16
+    ## Residual standard error: 487.9 on 54 degrees of freedom
+    ## Multiple R-squared:  0.9383, Adjusted R-squared:  0.9143 
+    ## F-statistic: 39.13 on 21 and 54 DF,  p-value: < 2.2e-16
 
 ``` r
 AIC(mlr2)
 ```
 
-    ## [1] 1176.029
+    ## [1] 1176.588
 
 ``` r
 x <- model.matrix(mlr2)[, -1]
 e <- eigen(t(x) %*% x)
-e$val
+# e$val
+# condition number = sqrt(e$val[1]/min(e$val))
 ```
 
-    ##  [1] 2.213676e+02 2.760295e+01 2.501325e+01 1.717583e+01 1.550916e+01 9.196077e+00 7.577487e+00
-    ##  [8] 6.975416e+00 6.708483e+00 5.859952e+00 5.851261e+00 5.319962e+00 4.005045e+00 2.501128e+00
-    ## [15] 1.928555e+00 1.624727e+00 1.065934e+00 8.713103e-01 4.863056e-01 3.817440e-01 1.791845e-01
-    ## [22] 8.772341e-02 7.018964e-03
+We see that AIC has changed little, and that *κ* = 40.11, which
+indicates a large reduction in collinearity.
+
+`mnth`, `weathersit` and `windspeed` appear to be marginally
+significant, so we look at the effect of removing each of them from the
+model:  
+Remove `mnth`
 
 ``` r
-sqrt(e$val[1]/min(e$val))
-```
-
-    ## [1] 177.5908
-
-``` r
-vif(x)
-```
-
-    ##              seasonspring              seasonsummer                seasonfall                    yr2012 
-    ##                  7.716816                 11.263072                  7.638869                  1.171686 
-    ##                     mnth2                     mnth3                     mnth4                     mnth5 
-    ##                  1.660595                  4.361446                  7.572723                  9.597257 
-    ##                     mnth6                     mnth7                     mnth8                     mnth9 
-    ##                  8.674651                 11.412595                 10.211405                 10.692715 
-    ##                    mnth10                    mnth11                    mnth12                  holiday1 
-    ##                  3.522056                  6.633776                  3.332063                       Inf 
-    ##               workingday1           weathersitclear weathersitlightRainOrSnow                      temp 
-    ##                       Inf                  1.976345                  1.588941                159.603750 
-    ##                     atemp                       hum                 windspeed 
-    ##                139.526385                  2.502990                  1.740600
-
-``` r
-#reduced AIC and condition number
-
-#remove temp (high collinearity, low p-value)
-mlr3 <- update(mlr2, . ~ . - temp)
+mlr3 <- update(mlr2, . ~ . - mnth)
 summary(mlr3)
 ```
 
     ## 
     ## Call:
-    ## lm(formula = registered ~ season + yr + mnth + holiday + workingday + 
-    ##     weathersit + atemp + hum + windspeed, data = dayTrain)
-    ## 
-    ## Residuals:
-    ##     Min      1Q  Median      3Q     Max 
-    ## -955.44 -226.30   66.09  290.61  751.01 
-    ## 
-    ## Coefficients: (1 not defined because of singularities)
-    ##                           Estimate Std. Error t value Pr(>|t|)    
-    ## (Intercept)                1257.08     569.30   2.208  0.03150 *  
-    ## seasonspring                780.55     352.82   2.212  0.03120 *  
-    ## seasonsummer                818.73     415.40   1.971  0.05387 .  
-    ## seasonfall                 1105.77     370.30   2.986  0.00424 ** 
-    ## yr2012                     1895.55     121.02  15.664  < 2e-16 ***
-    ## mnth2                        76.26     290.26   0.263  0.79376    
-    ## mnth3                        85.92     403.84   0.213  0.83233    
-    ## mnth4                      -268.66     531.31  -0.506  0.61515    
-    ## mnth5                       227.18     592.04   0.384  0.70269    
-    ## mnth6                      -199.22     641.45  -0.311  0.75732    
-    ## mnth7                      -643.14     694.67  -0.926  0.35866    
-    ## mnth8                      -143.00     647.51  -0.221  0.82604    
-    ## mnth9                       533.42     557.06   0.958  0.34255    
-    ## mnth10                      849.90     538.21   1.579  0.12015    
-    ## mnth11                      209.82     469.65   0.447  0.65684    
-    ## mnth12                       45.60     377.91   0.121  0.90440    
-    ## holiday1                  -3297.68     412.91  -7.986 1.04e-10 ***
-    ## workingday1                     NA         NA      NA       NA    
-    ## weathersitclear             279.85     166.29   1.683  0.09818 .  
-    ## weathersitlightRainOrSnow -2059.04     428.64  -4.804 1.28e-05 ***
-    ## atemp                      4734.69    1035.30   4.573 2.84e-05 ***
-    ## hum                       -1545.64     590.86  -2.616  0.01151 *  
-    ## windspeed                 -1256.83     928.33  -1.354  0.18142    
-    ## ---
-    ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
-    ## 
-    ## Residual standard error: 487.9 on 54 degrees of freedom
-    ## Multiple R-squared:  0.9383, Adjusted R-squared:  0.9143 
-    ## F-statistic: 39.13 on 21 and 54 DF,  p-value: < 2.2e-16
-
-``` r
-AIC(mlr3)
-```
-
-    ## [1] 1176.588
-
-``` r
-x <- model.matrix(mlr3)[, -1]
-e <- eigen(t(x) %*% x)
-e$val
-```
-
-    ##  [1] 201.61686240  27.20903644  24.75067069  16.99754067  15.49412154   9.04383103   7.54696486
-    ##  [8]   6.97262597   6.53578894   5.85891129   5.84309427   5.29255191   3.97214399   2.41394048
-    ## [15]   1.89762273   1.62425834   1.02762049   0.77924396   0.48621064   0.30376660   0.17819925
-    ## [22]   0.07873073
-
-``` r
-sqrt(e$val[1]/min(e$val))
-```
-
-    ## [1] 50.60475
-
-``` r
-vif(x)
-```
-
-    ##              seasonspring              seasonsummer                seasonfall                    yr2012 
-    ##                  7.707962                 11.018554                  7.603565                  1.169138 
-    ##                     mnth2                     mnth3                     mnth4                     mnth5 
-    ##                  1.653489                  4.354838                  7.537914                  9.359660 
-    ##                     mnth6                     mnth7                     mnth8                     mnth9 
-    ##                  8.075292                 11.205063                  9.735252                 10.344956 
-    ##                    mnth10                    mnth11                    mnth12                  holiday1 
-    ##                  3.507204                  6.633722                  3.316151                       Inf 
-    ##               workingday1           weathersitclear weathersitlightRainOrSnow                     atemp 
-    ##                       Inf                  1.949269                  1.503333                  8.325896 
-    ##                       hum                 windspeed 
-    ##                  2.411935                  1.642295
-
-``` r
-#reduced AIC and condition number
-
-#remove workingday (high collinearity, low p-value)
-mlr4 <- update(mlr3, . ~ . - workingday)
-summary(mlr4)
-```
-
-    ## 
-    ## Call:
-    ## lm(formula = registered ~ season + yr + mnth + holiday + weathersit + 
-    ##     atemp + hum + windspeed, data = dayTrain)
-    ## 
-    ## Residuals:
-    ##     Min      1Q  Median      3Q     Max 
-    ## -955.44 -226.30   66.09  290.61  751.01 
-    ## 
-    ## Coefficients:
-    ##                           Estimate Std. Error t value Pr(>|t|)    
-    ## (Intercept)                1257.08     569.30   2.208  0.03150 *  
-    ## seasonspring                780.55     352.82   2.212  0.03120 *  
-    ## seasonsummer                818.73     415.40   1.971  0.05387 .  
-    ## seasonfall                 1105.77     370.30   2.986  0.00424 ** 
-    ## yr2012                     1895.55     121.02  15.664  < 2e-16 ***
-    ## mnth2                        76.26     290.26   0.263  0.79376    
-    ## mnth3                        85.92     403.84   0.213  0.83233    
-    ## mnth4                      -268.66     531.31  -0.506  0.61515    
-    ## mnth5                       227.18     592.04   0.384  0.70269    
-    ## mnth6                      -199.22     641.45  -0.311  0.75732    
-    ## mnth7                      -643.14     694.67  -0.926  0.35866    
-    ## mnth8                      -143.00     647.51  -0.221  0.82604    
-    ## mnth9                       533.42     557.06   0.958  0.34255    
-    ## mnth10                      849.90     538.21   1.579  0.12015    
-    ## mnth11                      209.82     469.65   0.447  0.65684    
-    ## mnth12                       45.60     377.91   0.121  0.90440    
-    ## holiday1                  -3297.68     412.91  -7.986 1.04e-10 ***
-    ## weathersitclear             279.85     166.29   1.683  0.09818 .  
-    ## weathersitlightRainOrSnow -2059.04     428.64  -4.804 1.28e-05 ***
-    ## atemp                      4734.69    1035.30   4.573 2.84e-05 ***
-    ## hum                       -1545.64     590.86  -2.616  0.01151 *  
-    ## windspeed                 -1256.83     928.33  -1.354  0.18142    
-    ## ---
-    ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
-    ## 
-    ## Residual standard error: 487.9 on 54 degrees of freedom
-    ## Multiple R-squared:  0.9383, Adjusted R-squared:  0.9143 
-    ## F-statistic: 39.13 on 21 and 54 DF,  p-value: < 2.2e-16
-
-``` r
-AIC(mlr4)
-```
-
-    ## [1] 1176.588
-
-``` r
-x <- model.matrix(mlr4)[, -1]
-e <- eigen(t(x) %*% x)
-e$val
-```
-
-    ##  [1] 133.32822434  27.16984201  24.75048851  16.16155212  13.61788750   7.81745860   7.34130856
-    ##  [8]   6.91081509   6.50241541   5.85558900   5.67381434   5.27590097   3.93857589   1.90440201
-    ## [15]   1.62876315   1.41861290   1.02647288   0.77924327   0.44313765   0.29636582   0.08286722
-
-``` r
-sqrt(e$val[1]/min(e$val))
-```
-
-    ## [1] 40.11157
-
-``` r
-vif(x)
-```
-
-    ##              seasonspring              seasonsummer                seasonfall                    yr2012 
-    ##                  7.707962                 11.018554                  7.603565                  1.169138 
-    ##                     mnth2                     mnth3                     mnth4                     mnth5 
-    ##                  1.653489                  4.354838                  7.537914                  9.359660 
-    ##                     mnth6                     mnth7                     mnth8                     mnth9 
-    ##                  8.075292                 11.205063                  9.735252                 10.344956 
-    ##                    mnth10                    mnth11                    mnth12                  holiday1 
-    ##                  3.507204                  6.633722                  3.316151                  1.395033 
-    ##           weathersitclear weathersitlightRainOrSnow                     atemp                       hum 
-    ##                  1.949269                  1.503333                  8.325896                  2.411935 
-    ##                 windspeed 
-    ##                  1.642295
-
-``` r
-#reduced AIC and condition number
-
-#remove season (high collinearity, low p-value)
-mlr5 <- update(mlr4, . ~ . - season)
-summary(mlr5)
-```
-
-    ## 
-    ## Call:
-    ## lm(formula = registered ~ yr + mnth + holiday + weathersit + 
-    ##     atemp + hum + windspeed, data = dayTrain)
-    ## 
-    ## Residuals:
-    ##     Min      1Q  Median      3Q     Max 
-    ## -1667.2  -295.6    46.1   316.9   886.2 
-    ## 
-    ## Coefficients:
-    ##                           Estimate Std. Error t value Pr(>|t|)    
-    ## (Intercept)                1242.39     606.04   2.050  0.04497 *  
-    ## yr2012                     1894.45     129.17  14.666  < 2e-16 ***
-    ## mnth2                        84.65     310.43   0.273  0.78608    
-    ## mnth3                       484.01     375.05   1.291  0.20208    
-    ## mnth4                       545.94     373.13   1.463  0.14892    
-    ## mnth5                      1038.13     455.24   2.280  0.02634 *  
-    ## mnth6                       651.48     537.75   1.212  0.23070    
-    ## mnth7                       222.61     582.94   0.382  0.70398    
-    ## mnth8                       706.56     526.51   1.342  0.18493    
-    ## mnth9                      1466.49     435.73   3.366  0.00137 ** 
-    ## mnth10                     1973.22     432.01   4.568 2.69e-05 ***
-    ## mnth11                     1338.34     312.65   4.281 7.22e-05 ***
-    ## mnth12                      806.03     304.87   2.644  0.01057 *  
-    ## holiday1                  -3331.23     441.17  -7.551 3.84e-10 ***
-    ## weathersitclear             319.72     176.77   1.809  0.07578 .  
-    ## weathersitlightRainOrSnow -2245.87     451.88  -4.970 6.46e-06 ***
-    ## atemp                      4619.00    1080.22   4.276 7.33e-05 ***
-    ## hum                       -1462.29     605.22  -2.416  0.01891 *  
-    ## windspeed                 -1430.28     987.20  -1.449  0.15286    
-    ## ---
-    ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
-    ## 
-    ## Residual standard error: 522 on 57 degrees of freedom
-    ## Multiple R-squared:  0.9255, Adjusted R-squared:  0.9019 
-    ## F-statistic: 39.32 on 18 and 57 DF,  p-value: < 2.2e-16
-
-``` r
-AIC(mlr5)
-```
-
-    ## [1] 1184.981
-
-``` r
-#don't remove season because AIC increased
-
-#remove month (high collinearity, low p-value)
-mlr6 <- update(mlr4, . ~ . - mnth)
-summary(mlr6)
-```
-
-    ## 
-    ## Call:
-    ## lm(formula = registered ~ season + yr + holiday + weathersit + 
-    ##     atemp + hum + windspeed, data = dayTrain)
+    ## lm(formula = registered ~ season + yr + weathersit + atemp + 
+    ##     hum + windspeed + holiday, data = dayTrain)
     ## 
     ## Residuals:
     ##      Min       1Q   Median       3Q      Max 
@@ -727,12 +538,12 @@ summary(mlr6)
     ## seasonsummer                 731.7      283.2   2.584 0.012027 *  
     ## seasonfall                  1428.8      197.6   7.231 6.77e-10 ***
     ## yr2012                      1974.4      127.8  15.446  < 2e-16 ***
-    ## holiday1                   -3440.5      414.8  -8.293 8.79e-12 ***
     ## weathersitclear              389.0      169.5   2.295 0.024977 *  
     ## weathersitlightRainOrSnow  -1481.8      426.1  -3.478 0.000907 ***
     ## atemp                       4479.4      670.7   6.679 6.38e-09 ***
     ## hum                         -663.2      561.1  -1.182 0.241511    
     ## windspeed                  -1200.7      958.2  -1.253 0.214670    
+    ## holiday1                   -3440.5      414.8  -8.293 8.79e-12 ***
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
     ## 
@@ -741,139 +552,78 @@ summary(mlr6)
     ## F-statistic: 66.37 on 10 and 65 DF,  p-value: < 2.2e-16
 
 ``` r
-AIC(mlr6)
+AIC(mlr3)
 ```
 
     ## [1] 1182.636
 
 ``` r
-x <- model.matrix(mlr6)[, -1]
+x <- model.matrix(mlr3)[, -1]
 e <- eigen(t(x) %*% x)
-e$val
+# e$val
+# condition number = sqrt(e$val[1]/min(e$val))
 ```
 
-    ##  [1] 127.4153888  21.2069869  19.5647469  14.9126519  11.8868316   3.2212978   1.9266724   1.7175576
-    ##  [9]   0.6406577   0.4309456
+Remove `weathersit`
 
 ``` r
-sqrt(e$val[1]/min(e$val))
+mlr4 <- update(mlr2, . ~ . - weathersit)
+# summary(mlr4)
+AIC(mlr4)
 ```
 
-    ## [1] 17.1949
+    ## [1] 1213.045
 
 ``` r
-vif(x)
-```
-
-    ##              seasonspring              seasonsummer                seasonfall                    yr2012 
-    ##                  2.588232                  4.261313                  1.801624                  1.085616 
-    ##                  holiday1           weathersitclear weathersitlightRainOrSnow                     atemp 
-    ##                  1.171877                  1.685423                  1.236223                  2.907664 
-    ##                       hum                 windspeed 
-    ##                  1.810274                  1.456245
-
-``` r
-#reduced AIC and condition number
-
-#remove year from full model instead of dteday (high collinearity)
-mlr7 <- update(mlrFull, . ~ . - yr - workingday - temp, dayTrain)
-summary(mlr7)
-```
-
-    ## 
-    ## Call:
-    ## lm(formula = registered ~ dteday + season + mnth + holiday + 
-    ##     weathersit + atemp + hum + windspeed, data = dayTrain)
-    ## 
-    ## Residuals:
-    ##      Min       1Q   Median       3Q      Max 
-    ## -1020.53  -252.68    74.11   283.26   742.42 
-    ## 
-    ## Coefficients:
-    ##                             Estimate Std. Error t value Pr(>|t|)    
-    ## (Intercept)               -7.563e+04  5.127e+03 -14.753  < 2e-16 ***
-    ## dteday                     5.129e+00  3.339e-01  15.359  < 2e-16 ***
-    ## seasonspring               7.789e+02  3.585e+02   2.172 0.034228 *  
-    ## seasonsummer               8.050e+02  4.221e+02   1.907 0.061827 .  
-    ## seasonfall                 1.079e+03  3.762e+02   2.869 0.005867 ** 
-    ## mnth2                     -7.417e+01  2.956e+02  -0.251 0.802853    
-    ## mnth3                     -2.185e+02  4.104e+02  -0.532 0.596582    
-    ## mnth4                     -7.279e+02  5.376e+02  -1.354 0.181389    
-    ## mnth5                     -3.961e+02  5.993e+02  -0.661 0.511399    
-    ## mnth6                     -9.763e+02  6.463e+02  -1.511 0.136737    
-    ## mnth7                     -1.557e+03  6.996e+02  -2.226 0.030187 *  
-    ## mnth8                     -1.201e+03  6.557e+02  -1.832 0.072532 .  
-    ## mnth9                     -6.807e+02  5.657e+02  -1.203 0.234143    
-    ## mnth10                    -5.002e+02  5.532e+02  -0.904 0.369879    
-    ## mnth11                    -1.291e+03  4.885e+02  -2.643 0.010721 *  
-    ## mnth12                    -1.639e+03  4.017e+02  -4.081 0.000149 ***
-    ## holiday1                  -3.364e+03  4.194e+02  -8.021 9.12e-11 ***
-    ## weathersitclear            3.032e+02  1.689e+02   1.795 0.078331 .  
-    ## weathersitlightRainOrSnow -2.023e+03  4.360e+02  -4.639 2.27e-05 ***
-    ## atemp                      4.717e+03  1.052e+03   4.482 3.89e-05 ***
-    ## hum                       -1.565e+03  6.003e+02  -2.607 0.011783 *  
-    ## windspeed                 -1.199e+03  9.440e+02  -1.270 0.209469    
-    ## ---
-    ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
-    ## 
-    ## Residual standard error: 495.7 on 54 degrees of freedom
-    ## Multiple R-squared:  0.9363, Adjusted R-squared:  0.9116 
-    ## F-statistic: 37.81 on 21 and 54 DF,  p-value: < 2.2e-16
-
-``` r
-AIC(mlr7)
-```
-
-    ## [1] 1179.023
-
-``` r
-x <- model.matrix(mlr7)[, -1]
+x <- model.matrix(mlr4)[, -1]
 e <- eigen(t(x) %*% x)
-e$val
+# e$val
+# condition # =
+# sqrt(e$val[1]/min(e$val))
 ```
 
-    ##  [1] 1.788472e+10 2.725763e+01 2.574657e+01 1.684971e+01 9.488500e+00 7.600940e+00 6.948504e+00
-    ##  [8] 6.516024e+00 6.089029e+00 5.997150e+00 5.308369e+00 3.960150e+00 2.219264e+00 1.904366e+00
-    ## [15] 1.467059e+00 1.056462e+00 8.296829e-01 6.755225e-01 3.324570e-01 2.736884e-01 8.092849e-02
+Remove `windspeed`
 
 ``` r
-sqrt(e$val[1]/min(e$val))
+mlr5 <- update(mlr2, . ~ . - windspeed)
+# summary(mlr5)
+AIC(mlr5)
 ```
 
-    ## [1] 470100.1
+    ## [1] 1177.125
 
 ``` r
-vif(x)
+x <- model.matrix(mlr5)[, -1]
+e <- eigen(t(x) %*% x)
+# e$val
+# condition # =
+# sqrt(e$val[1]/min(e$val))
 ```
 
-    ##                    dteday              seasonspring              seasonsummer                seasonfall 
-    ##                  1.558832                  7.708342                 11.018960                  7.601559 
-    ##                     mnth2                     mnth3                     mnth4                     mnth5 
-    ##                  1.661117                  4.356471                  7.474792                  9.287051 
-    ##                     mnth6                     mnth7                     mnth8                     mnth9 
-    ##                  7.940625                 11.005633                  9.667930                 10.332316 
-    ##                    mnth10                    mnth11                    mnth12                  holiday1 
-    ##                  3.587912                  6.950395                  3.628661                  1.393650 
-    ##           weathersitclear weathersitlightRainOrSnow                     atemp                       hum 
-    ##                  1.948341                  1.506459                  8.331386                  2.410737 
-    ##                 windspeed 
-    ##                  1.644816
+For `mnth`, `weathersit`, and `windspeed`, removal from the model
+results in only marginal change to AIC. If our main goal were inference
+and understanding the relationships between the variables, we might want
+to remove them from the model for the sake of simplicity,
+interpretability, and more narrow confidence intervals. Because our
+primary goal here is prediction, we will leave them in the model, and
+choose mlr2 as our base linear regression model.
+
+We will now do some diagnostic plots on our base model, and then
+consider adding higher order terms to the model.
 
 ``` r
-#higher AIC than mlr4
-
-#compare to model chosen by leaps::step() function
+# compare to model chosen by leaps::step() function
 mlrStep <- step(mlrFull)
 ```
 
     ## Start:  AIC=958.45
-    ## registered ~ dteday + season + yr + mnth + holiday + workingday + 
-    ##     weathersit + temp + atemp + hum + windspeed
+    ## registered ~ dteday + season + yr + mnth + weathersit + temp + 
+    ##     atemp + hum + windspeed + workingday + holiday
     ## 
     ## 
     ## Step:  AIC=958.45
-    ## registered ~ dteday + season + yr + mnth + holiday + weathersit + 
-    ##     temp + atemp + hum + windspeed
+    ## registered ~ dteday + season + yr + mnth + weathersit + temp + 
+    ##     atemp + hum + windspeed + workingday
     ## 
     ##              Df Sum of Sq      RSS     AIC
     ## - atemp       1     36463 12156791  956.68
@@ -886,11 +636,11 @@ mlrStep <- step(mlrFull)
     ## - hum         1   1915287 14035616  967.60
     ## - season      3   2702401 14822729  967.75
     ## - weathersit  2   9590194 21710523  998.76
-    ## - holiday     1  13347463 25467791 1012.89
+    ## - workingday  1  13347463 25467791 1012.89
     ## 
     ## Step:  AIC=956.68
-    ## registered ~ dteday + season + yr + mnth + holiday + weathersit + 
-    ##     temp + hum + windspeed
+    ## registered ~ dteday + season + yr + mnth + weathersit + temp + 
+    ##     hum + windspeed + workingday
     ## 
     ##              Df Sum of Sq      RSS     AIC
     ## - dteday      1    277452 12434243  956.40
@@ -902,11 +652,11 @@ mlrStep <- step(mlrFull)
     ## - season      3   2723921 14880712  966.05
     ## - temp        1   5574962 17731753  983.37
     ## - weathersit  2   9681853 21838644  997.20
-    ## - holiday     1  13556095 25712886 1011.61
+    ## - workingday  1  13556095 25712886 1011.61
     ## 
     ## Step:  AIC=956.4
-    ## registered ~ season + yr + mnth + holiday + weathersit + temp + 
-    ##     hum + windspeed
+    ## registered ~ season + yr + mnth + weathersit + temp + hum + windspeed + 
+    ##     workingday
     ## 
     ##              Df Sum of Sq      RSS     AIC
     ## <none>                    12434243  956.40
@@ -916,7 +666,7 @@ mlrStep <- step(mlrFull)
     ## - hum         1   1896659 14330902  965.19
     ## - temp        1   5395495 17829739  981.79
     ## - weathersit  2   9606266 22040509  995.90
-    ## - holiday     1  15039183 27473426 1014.65
+    ## - workingday  1  15039183 27473426 1014.65
     ## - yr          1  57802538 70236781 1085.99
 
 ``` r
@@ -931,319 +681,384 @@ names(mlrStep)
 mlrStep$call
 ```
 
-    ## lm(formula = registered ~ season + yr + mnth + holiday + weathersit + 
-    ##     temp + hum + windspeed, data = dayTrain)
+    ## lm(formula = registered ~ season + yr + mnth + weathersit + temp + 
+    ##     hum + windspeed + workingday, data = dayTrain)
 
 ``` r
-mlr6$call
+mlr2$call
 ```
 
-    ## lm(formula = registered ~ season + yr + holiday + weathersit + 
-    ##     atemp + hum + windspeed, data = dayTrain)
+    ## lm(formula = registered ~ season + yr + mnth + weathersit + atemp + 
+    ##     hum + windspeed + holiday, data = dayTrain)
 
 ``` r
-AIC(mlr6, mlrStep)
+AIC(mlr2, mlrStep)
 ```
 
     ##         df      AIC
-    ## mlr6    12 1182.636
+    ## mlr2    23 1176.588
     ## mlrStep 23 1174.076
 
 ``` r
-#my choice agrees with step() choice
-
-#diagnostics plot
-plot(mlr6$fitted, mlr6$residuals)
+# does mlr3  agrees with step() choice?
 ```
 
-![](Thursday_files/figure-gfm/arthur_bestMLR-2.png)<!-- -->
+We can check for constant variance of our error term, an assumption of
+our model, by looking at a plot of the model’s fitted values vs the
+residuals (difference between fitted response and observed response). A
+“megaphone” shape can indicate non-constant variance.
 
 ``` r
-#indication of mild nonconstant variance
-MASS::boxcox(mlr6)
+plot(mlr2$fitted, mlr3$residuals)
 ```
 
-![](Thursday_files/figure-gfm/arthur_bestMLR-3.png)<!-- -->
+![](Thursday_files/figure-gfm/unnamed-chunk-16-1.png)<!-- -->
+
+Another way to assess constant variance is with the Box-Cox method,
+which can suggest transformations of the response to address problems
+with non-constant variance. If the maximum log-likelihood of *λ* close
+to 1, as in this case, indicates that non-constant variance is not a
+problem with the existing model.
 
 ``` r
-#Box-Cox lambda close to 1, so no need for transformation of response
-
-#look for nonlinearity with partial residuals plots
-termplot(mlr6, partial.resid = TRUE)
+MASS::boxcox(mlr2)
 ```
 
-![](Thursday_files/figure-gfm/arthur_bestMLR-4.png)<!-- -->![](Thursday_files/figure-gfm/arthur_bestMLR-5.png)<!-- -->![](Thursday_files/figure-gfm/arthur_bestMLR-6.png)<!-- -->![](Thursday_files/figure-gfm/arthur_bestMLR-7.png)<!-- -->![](Thursday_files/figure-gfm/arthur_bestMLR-8.png)<!-- -->![](Thursday_files/figure-gfm/arthur_bestMLR-9.png)<!-- -->![](Thursday_files/figure-gfm/arthur_bestMLR-10.png)<!-- -->
+    ## Error in `contrasts<-`(`*tmp*`, value = contr.funs[1 + isOF[nn]]): contrasts can be applied only to factors with 2 or more levels
+
+We will also look at for signs of nonlinearity, which can indicate the
+need for quadratic terms for some of the predictors. The partial
+residual plots below plot the relationship between each predictor and
+the response, with the effect of the other predictors removed.
 
 ``` r
-#atemp, hum, and windspeed look somewhat nonlinear, so try quadratic terms for them
-mlr8 <- update(mlr6, . ~ . + I(atemp^2))
+termplot( mlr2, partial.resid = TRUE, terms = c("atemp", "windspeed", "hum"))
+```
+
+![](Thursday_files/figure-gfm/unnamed-chunk-18-1.png)<!-- -->![](Thursday_files/figure-gfm/unnamed-chunk-18-2.png)<!-- -->![](Thursday_files/figure-gfm/unnamed-chunk-18-3.png)<!-- -->
+
+For at least some days of the week there is a nonlinear pattern to the
+plots, particularly for `atemp`, so we will try adding quadratic terms
+for each of them to our base model.
+
+Try adding *a**t**e**m**p*<sup>2</sup>
+
+``` r
+mlr8 <- update(mlr2, . ~ . + I(atemp^2))
 summary(mlr8)
 ```
 
     ## 
     ## Call:
-    ## lm(formula = registered ~ season + yr + holiday + weathersit + 
-    ##     atemp + hum + windspeed + I(atemp^2), data = dayTrain)
+    ## lm(formula = registered ~ season + yr + mnth + weathersit + atemp + 
+    ##     hum + windspeed + holiday + I(atemp^2), data = dayTrain)
     ## 
     ## Residuals:
-    ##      Min       1Q   Median       3Q      Max 
-    ## -1134.51  -253.26    31.25   280.12   808.81 
+    ##     Min      1Q  Median      3Q     Max 
+    ## -939.89 -181.58   38.88  282.26  657.92 
     ## 
     ## Coefficients:
     ##                           Estimate Std. Error t value Pr(>|t|)    
-    ## (Intercept)                 -925.4      637.3  -1.452  0.15141    
-    ## seasonspring                 548.9      206.6   2.657  0.00994 ** 
-    ## seasonsummer                 876.7      255.5   3.431  0.00106 ** 
-    ## seasonfall                  1220.0      183.6   6.646 7.76e-09 ***
-    ## yr2012                      1896.1      115.8  16.374  < 2e-16 ***
-    ## holiday1                   -3472.0      370.9  -9.361 1.33e-13 ***
-    ## weathersitclear              380.3      151.5   2.510  0.01463 *  
-    ## weathersitlightRainOrSnow  -1901.4      394.0  -4.827 8.99e-06 ***
-    ## atemp                      14043.3     2372.9   5.918 1.40e-07 ***
-    ## hum                         -942.1      506.0  -1.862  0.06721 .  
-    ## windspeed                  -1012.2      857.7  -1.180  0.24235    
-    ## I(atemp^2)                -10558.3     2534.7  -4.166 9.48e-05 ***
+    ## (Intercept)                -231.47     688.24  -0.336  0.73796    
+    ## seasonspring                806.23     324.04   2.488  0.01602 *  
+    ## seasonsummer                901.66     382.22   2.359  0.02204 *  
+    ## seasonfall                 1107.71     340.00   3.258  0.00196 ** 
+    ## yr2012                     1863.90     111.52  16.713  < 2e-16 ***
+    ## mnth2                       -21.92     268.14  -0.082  0.93517    
+    ## mnth3                      -242.69     383.74  -0.632  0.52982    
+    ## mnth4                      -656.38     501.58  -1.309  0.19630    
+    ## mnth5                        22.39     547.07   0.041  0.96750    
+    ## mnth6                      -239.42     589.08  -0.406  0.68606    
+    ## mnth7                      -314.68     645.43  -0.488  0.62788    
+    ## mnth8                       -51.31     595.16  -0.086  0.93162    
+    ## mnth9                       351.29     514.40   0.683  0.49764    
+    ## mnth10                      530.57     503.42   1.054  0.29669    
+    ## mnth11                     -103.98     441.43  -0.236  0.81468    
+    ## mnth12                     -195.00     354.45  -0.550  0.58453    
+    ## weathersitclear             271.57     152.71   1.778  0.08108 .  
+    ## weathersitlightRainOrSnow -2184.39     395.37  -5.525 1.02e-06 ***
+    ## atemp                     13288.41    2742.74   4.845 1.14e-05 ***
+    ## hum                       -1609.55     542.85  -2.965  0.00453 ** 
+    ## windspeed                  -859.13     860.72  -0.998  0.32274    
+    ## holiday1                  -3281.24     379.16  -8.654 1.02e-11 ***
+    ## I(atemp^2)                -9874.86    2970.11  -3.325  0.00161 ** 
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
     ## 
-    ## Residual standard error: 478 on 64 degrees of freedom
-    ## Multiple R-squared:  0.9298, Adjusted R-squared:  0.9178 
-    ## F-statistic: 77.09 on 11 and 64 DF,  p-value: < 2.2e-16
+    ## Residual standard error: 447.9 on 53 degrees of freedom
+    ## Multiple R-squared:  0.949,  Adjusted R-squared:  0.9278 
+    ## F-statistic:  44.8 on 22 and 53 DF,  p-value: < 2.2e-16
 
 ``` r
 AIC(mlr8)
 ```
 
-    ## [1] 1166.404
+    ## [1] 1164.191
+
+Reduced or similar AIC, so keep mlr8 as new base model.
+
+Try adding *h**u**m*<sup>2</sup>
 
 ``` r
-#improved AIC, so keep atemp^2 in model
-
 mlr9 <- update(mlr8, . ~ . + I(hum^2))
 summary(mlr9)
 ```
 
     ## 
     ## Call:
-    ## lm(formula = registered ~ season + yr + holiday + weathersit + 
-    ##     atemp + hum + windspeed + I(atemp^2) + I(hum^2), data = dayTrain)
+    ## lm(formula = registered ~ season + yr + mnth + weathersit + atemp + 
+    ##     hum + windspeed + holiday + I(atemp^2) + I(hum^2), data = dayTrain)
     ## 
     ## Residuals:
-    ##      Min       1Q   Median       3Q      Max 
-    ## -1116.40  -256.61    14.53   286.44   798.83 
+    ##     Min      1Q  Median      3Q     Max 
+    ## -936.55 -178.61   40.12  280.13  657.76 
     ## 
     ## Coefficients:
     ##                           Estimate Std. Error t value Pr(>|t|)    
-    ## (Intercept)                 -680.8      901.2  -0.755 0.452810    
-    ## seasonspring                 545.3      208.1   2.620 0.011015 *  
-    ## seasonsummer                 882.6      257.7   3.425 0.001085 ** 
-    ## seasonfall                  1227.9      185.9   6.604 9.75e-09 ***
-    ## yr2012                      1899.8      117.0  16.241  < 2e-16 ***
-    ## holiday1                   -3462.3      374.2  -9.252 2.38e-13 ***
-    ## weathersitclear              408.4      169.0   2.416 0.018599 *  
-    ## weathersitlightRainOrSnow  -2070.9      591.3  -3.502 0.000854 ***
-    ## atemp                      13906.9     2414.8   5.759 2.71e-07 ***
-    ## hum                        -1942.1     2637.3  -0.736 0.464228    
-    ## windspeed                   -951.7      877.6  -1.084 0.282294    
-    ## I(atemp^2)                -10427.6     2574.0  -4.051 0.000142 ***
-    ## I(hum^2)                     933.9     2416.9   0.386 0.700483    
+    ## (Intercept)                -314.68     890.58  -0.353 0.725262    
+    ## seasonspring                813.74     330.91   2.459 0.017295 *  
+    ## seasonsummer                903.78     386.06   2.341 0.023100 *  
+    ## seasonfall                 1104.81     343.73   3.214 0.002249 ** 
+    ## yr2012                     1861.62     113.59  16.389  < 2e-16 ***
+    ## mnth2                       -23.08     270.76  -0.085 0.932405    
+    ## mnth3                      -235.95     389.95  -0.605 0.547760    
+    ## mnth4                      -664.87     509.45  -1.305 0.197614    
+    ## mnth5                        15.94     553.88   0.029 0.977151    
+    ## mnth6                      -246.83     596.66  -0.414 0.680809    
+    ## mnth7                      -324.15     654.55  -0.495 0.622526    
+    ## mnth8                       -57.92     602.36  -0.096 0.923769    
+    ## mnth9                       349.76     519.31   0.673 0.503612    
+    ## mnth10                      533.43     508.49   1.049 0.299009    
+    ## mnth11                     -101.03     446.00  -0.227 0.821683    
+    ## mnth12                     -198.43     358.50  -0.553 0.582294    
+    ## weathersitclear             259.03     175.51   1.476 0.146015    
+    ## weathersitlightRainOrSnow -2123.51     570.55  -3.722 0.000487 ***
+    ## atemp                     13308.05    2771.52   4.802 1.37e-05 ***
+    ## hum                       -1222.54    2649.20  -0.461 0.646381    
+    ## windspeed                  -893.34     898.46  -0.994 0.324683    
+    ## holiday1                  -3287.53     385.02  -8.539 1.81e-11 ***
+    ## I(atemp^2)                -9882.57    2998.34  -3.296 0.001771 ** 
+    ## I(hum^2)                   -368.96    2471.10  -0.149 0.881886    
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
     ## 
-    ## Residual standard error: 481.2 on 63 degrees of freedom
-    ## Multiple R-squared:   0.93,  Adjusted R-squared:  0.9167 
-    ## F-statistic: 69.74 on 12 and 63 DF,  p-value: < 2.2e-16
+    ## Residual standard error: 452.1 on 52 degrees of freedom
+    ## Multiple R-squared:  0.949,  Adjusted R-squared:  0.9264 
+    ## F-statistic: 42.07 on 23 and 52 DF,  p-value: < 2.2e-16
 
 ``` r
 AIC(mlr9)
 ```
 
-    ## [1] 1168.224
+    ## [1] 1166.158
+
+Similar AIC for most days of week, so keep mlr9 as a candidate model to
+compare using cross validation.
+
+Try adding *w**i**n**d**s**p**e**e**d*<sup>2</sup>
 
 ``` r
-#improved AIC, so keep hum^2 in model
-
-mlr10 <- update(mlr9, . ~ . + I(windspeed^2))
+mlr10 <- update(mlr8, . ~ . + I(windspeed^2))
 summary(mlr10)
 ```
 
     ## 
     ## Call:
-    ## lm(formula = registered ~ season + yr + holiday + weathersit + 
-    ##     atemp + hum + windspeed + I(atemp^2) + I(hum^2) + I(windspeed^2), 
+    ## lm(formula = registered ~ season + yr + mnth + weathersit + atemp + 
+    ##     hum + windspeed + holiday + I(atemp^2) + I(windspeed^2), 
     ##     data = dayTrain)
     ## 
     ## Residuals:
-    ##      Min       1Q   Median       3Q      Max 
-    ## -1111.04  -276.98    14.53   303.08   790.57 
+    ##     Min      1Q  Median      3Q     Max 
+    ## -943.88 -181.82   38.12  290.50  661.64 
     ## 
     ## Coefficients:
     ##                           Estimate Std. Error t value Pr(>|t|)    
-    ## (Intercept)                 -878.2     1003.6  -0.875 0.384928    
-    ## seasonspring                 516.2      218.8   2.359 0.021515 *  
-    ## seasonsummer                 867.3      261.4   3.318 0.001522 ** 
-    ## seasonfall                  1205.7      193.3   6.239 4.38e-08 ***
-    ## yr2012                      1911.7      120.5  15.862  < 2e-16 ***
-    ## holiday1                   -3427.5      384.1  -8.923 1.01e-12 ***
-    ## weathersitclear              412.2      170.3   2.420 0.018447 *  
-    ## weathersitlightRainOrSnow  -2102.0      598.9  -3.510 0.000841 ***
-    ## atemp                      14182.0     2502.8   5.667 4.04e-07 ***
-    ## hum                        -1971.5     2654.7  -0.743 0.460509    
-    ## windspeed                    591.8     3474.7   0.170 0.865321    
-    ## I(atemp^2)                -10713.8     2664.2  -4.021 0.000159 ***
-    ## I(hum^2)                     974.8     2433.8   0.401 0.690143    
-    ## I(windspeed^2)             -3459.3     7532.0  -0.459 0.647640    
+    ## (Intercept)                -261.34     812.96  -0.321  0.74914    
+    ## seasonspring                801.21     334.74   2.393  0.02033 *  
+    ## seasonsummer                894.25     399.80   2.237  0.02962 *  
+    ## seasonfall                 1096.78     376.40   2.914  0.00525 ** 
+    ## yr2012                     1865.59     115.10  16.209  < 2e-16 ***
+    ## mnth2                       -25.42     275.18  -0.092  0.92676    
+    ## mnth3                      -242.02     387.51  -0.625  0.53500    
+    ## mnth4                      -655.77     506.43  -1.295  0.20108    
+    ## mnth5                        19.69     553.60   0.036  0.97176    
+    ## mnth6                      -241.40     595.35  -0.405  0.68679    
+    ## mnth7                      -315.03     651.60  -0.483  0.63079    
+    ## mnth8                       -48.59     602.05  -0.081  0.93598    
+    ## mnth9                       355.27     522.34   0.680  0.49942    
+    ## mnth10                      536.40     514.85   1.042  0.30229    
+    ## mnth11                      -95.15     462.78  -0.206  0.83790    
+    ## mnth12                     -188.10     370.87  -0.507  0.61416    
+    ## weathersitclear             272.80     155.14   1.758  0.08456 .  
+    ## weathersitlightRainOrSnow -2188.55     403.42  -5.425 1.53e-06 ***
+    ## atemp                     13317.59    2799.38   4.757 1.60e-05 ***
+    ## hum                       -1609.24     548.04  -2.936  0.00494 ** 
+    ## windspeed                  -614.64    3562.08  -0.173  0.86367    
+    ## holiday1                  -3277.74     385.95  -8.493 2.14e-11 ***
+    ## I(atemp^2)                -9895.45    3012.47  -3.285  0.00183 ** 
+    ## I(windspeed^2)             -555.04    7842.22  -0.071  0.94385    
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
     ## 
-    ## Residual standard error: 484.3 on 62 degrees of freedom
-    ## Multiple R-squared:  0.9302, Adjusted R-squared:  0.9156 
-    ## F-statistic: 63.59 on 13 and 62 DF,  p-value: < 2.2e-16
+    ## Residual standard error: 452.2 on 52 degrees of freedom
+    ## Multiple R-squared:  0.949,  Adjusted R-squared:  0.9264 
+    ## F-statistic: 42.05 on 23 and 52 DF,  p-value: < 2.2e-16
 
 ``` r
 AIC(mlr10)
 ```
 
-    ## [1] 1169.966
+    ## [1] 1166.184
+
+Similar AIC for most days of week, so keep mlr10 as a candidate model to
+compare using cross validation.
+
+Try including all 3 quadratic terms
 
 ``` r
-#slightly improved AIC, compare using cross validation
-
-#interaction of weather vars w/ holiday seems possible, so try adding to model
-mlr11 <- update(mlr9, . ~ . + weathersit:holiday)
+mlr11 <- update(mlr8, . ~ . + I(hum^2) + I(windspeed^2))
 summary(mlr11)
 ```
 
     ## 
     ## Call:
-    ## lm(formula = registered ~ season + yr + holiday + weathersit + 
-    ##     atemp + hum + windspeed + I(atemp^2) + I(hum^2) + holiday:weathersit, 
+    ## lm(formula = registered ~ season + yr + mnth + weathersit + atemp + 
+    ##     hum + windspeed + holiday + I(atemp^2) + I(hum^2) + I(windspeed^2), 
     ##     data = dayTrain)
     ## 
     ## Residuals:
-    ##      Min       1Q   Median       3Q      Max 
-    ## -1116.40  -256.61    14.53   286.44   798.83 
+    ##     Min      1Q  Median      3Q     Max 
+    ## -940.50 -178.30   39.56  288.31  661.44 
     ## 
-    ## Coefficients: (2 not defined because of singularities)
-    ##                                    Estimate Std. Error t value Pr(>|t|)    
-    ## (Intercept)                          -680.8      901.2  -0.755 0.452810    
-    ## seasonspring                          545.3      208.1   2.620 0.011015 *  
-    ## seasonsummer                          882.6      257.7   3.425 0.001085 ** 
-    ## seasonfall                           1227.9      185.9   6.604 9.75e-09 ***
-    ## yr2012                               1899.8      117.0  16.241  < 2e-16 ***
-    ## holiday1                            -3462.3      374.2  -9.252 2.38e-13 ***
-    ## weathersitclear                       408.4      169.0   2.416 0.018599 *  
-    ## weathersitlightRainOrSnow           -2070.9      591.3  -3.502 0.000854 ***
-    ## atemp                               13906.9     2414.8   5.759 2.71e-07 ***
-    ## hum                                 -1942.1     2637.3  -0.736 0.464228    
-    ## windspeed                            -951.7      877.6  -1.084 0.282294    
-    ## I(atemp^2)                         -10427.6     2574.0  -4.051 0.000142 ***
-    ## I(hum^2)                              933.9     2416.9   0.386 0.700483    
-    ## holiday1:weathersitclear                 NA         NA      NA       NA    
-    ## holiday1:weathersitlightRainOrSnow       NA         NA      NA       NA    
+    ## Coefficients:
+    ##                           Estimate Std. Error t value Pr(>|t|)    
+    ## (Intercept)                -344.02     993.83  -0.346 0.730649    
+    ## seasonspring                808.75     341.78   2.366 0.021805 *  
+    ## seasonsummer                896.45     403.89   2.220 0.030925 *  
+    ## seasonfall                 1094.00     380.46   2.875 0.005873 ** 
+    ## yr2012                     1863.30     117.23  15.895  < 2e-16 ***
+    ## mnth2                       -26.54     277.91  -0.095 0.924296    
+    ## mnth3                      -235.30     393.85  -0.597 0.552858    
+    ## mnth4                      -664.24     514.48  -1.291 0.202493    
+    ## mnth5                        13.29     560.56   0.024 0.981181    
+    ## mnth6                      -248.76     603.10  -0.412 0.681719    
+    ## mnth7                      -324.47     660.92  -0.491 0.625574    
+    ## mnth8                       -55.22     609.45  -0.091 0.928166    
+    ## mnth9                       353.70     527.43   0.671 0.505494    
+    ## mnth10                      539.19     520.10   1.037 0.304769    
+    ## mnth11                      -92.30     467.59  -0.197 0.844304    
+    ## mnth12                     -191.60     375.16  -0.511 0.611752    
+    ## weathersitclear             260.28     178.13   1.461 0.150098    
+    ## weathersitlightRainOrSnow -2127.77     579.35  -3.673 0.000576 ***
+    ## atemp                     13336.86    2829.11   4.714 1.92e-05 ***
+    ## hum                       -1223.18    2674.93  -0.457 0.649415    
+    ## windspeed                  -651.43    3604.70  -0.181 0.857306    
+    ## holiday1                  -3284.05     391.97  -8.378 3.74e-11 ***
+    ## I(atemp^2)                -9902.91    3041.63  -3.256 0.002012 ** 
+    ## I(hum^2)                   -368.06    2495.12  -0.148 0.883308    
+    ## I(windspeed^2)             -548.98    7917.15  -0.069 0.944990    
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
     ## 
-    ## Residual standard error: 481.2 on 63 degrees of freedom
-    ## Multiple R-squared:   0.93,  Adjusted R-squared:  0.9167 
-    ## F-statistic: 69.74 on 12 and 63 DF,  p-value: < 2.2e-16
+    ## Residual standard error: 456.5 on 51 degrees of freedom
+    ## Multiple R-squared:  0.949,  Adjusted R-squared:  0.925 
+    ## F-statistic: 39.54 on 24 and 51 DF,  p-value: < 2.2e-16
 
 ``` r
 AIC(mlr11)
 ```
 
-    ## [1] 1168.224
+    ## [1] 1168.151
+
+Similar AIC for most days of week, so keep mlr11 as a candidate model to
+compare using cross validation.
+
+We will now compare the 4 candidate models using cross validation. Cross
+validation subdivides the training set into *k* folds, then fits a model
+using *k* − 1 of those folds, and tests its accuracy predicting on the
+*k*<sup>*t**h*</sup> fold. This is repeated *k* − 1 more times, so that
+each fold gets a turn as the test set. Several measures of the
+performance of the model are returned. We will choose the best model in
+terms of lowest Root Mean Squared Error.
 
 ``` r
-#slightly worse AIC, compare using cross validation
-mlr12 <- update(mlr9, . ~ . + atemp:holiday)
-summary(mlr12)
+if(length(unique(dayTrain$holiday)) != 1){
+  mlrFit8 <- train(registered ~ season + yr + mnth + holiday + weathersit + atemp + hum + windspeed + I(atemp^2), data = dayTrain,
+      method = "lm",
+      preProcess = c("center", "scale"),
+      trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3))
+  
+  mlrFit9 <- train(registered ~ season + yr + mnth + holiday + weathersit + atemp + hum + windspeed + I(atemp^2) + I(hum^2), data = dayTrain,
+      method = "lm",
+      preProcess = c("center", "scale"),
+      trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3))
+  
+  mlrFit10 <- train(registered ~ season + yr + mnth + holiday + weathersit + atemp + hum + windspeed + I(atemp^2) + I(windspeed^2), data = dayTrain,
+      method = "lm",
+      preProcess = c("center", "scale"),
+      trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3))
+  
+  mlrFit11 <- train(registered ~ season + yr + mnth + holiday + weathersit + atemp + hum + windspeed + I(atemp^2) + I(hum^2)+ I(windspeed^2), data = dayTrain,
+      method = "lm",
+      preProcess = c("center", "scale"),
+      trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3))
+}else{
+  mlrFit8 <- train(registered ~ season + yr + mnth + weathersit + atemp + hum + windspeed + I(atemp^2), data = dayTrain,
+      method = "lm",
+      preProcess = c("center", "scale"),
+      trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3))
+  
+  mlrFit9 <- train(registered ~ season + yr + mnth + weathersit + atemp + hum + windspeed + I(atemp^2) + I(hum^2), data = dayTrain,
+      method = "lm",
+      preProcess = c("center", "scale"),
+      trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3))
+  
+  mlrFit10 <- train(registered ~ season + yr + mnth + weathersit + atemp + hum + windspeed + I(atemp^2) + I(windspeed^2), data = dayTrain,
+      method = "lm",
+      preProcess = c("center", "scale"),
+      trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3))
+  
+  mlrFit11 <- train(registered ~ season + yr + mnth + weathersit + atemp + hum + windspeed + I(atemp^2) + I(hum^2)+ I(windspeed^2), data = dayTrain,
+      method = "lm",
+      preProcess = c("center", "scale"),
+      trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3))
+}
+comparison <- data.frame(t(mlrFit8$results), t(mlrFit9$results), t(mlrFit10$results), t(mlrFit11$results))
+colnames(comparison) <- c("mlrFit8", "mlrFit9", "mlrFit10", "mlrFit11")
+kable(comparison)
 ```
 
-    ## 
-    ## Call:
-    ## lm(formula = registered ~ season + yr + holiday + weathersit + 
-    ##     atemp + hum + windspeed + I(atemp^2) + I(hum^2) + holiday:atemp, 
-    ##     data = dayTrain)
-    ## 
-    ## Residuals:
-    ##      Min       1Q   Median       3Q      Max 
-    ## -1150.85  -232.99    -3.59   267.15   799.17 
-    ## 
-    ## Coefficients:
-    ##                           Estimate Std. Error t value Pr(>|t|)    
-    ## (Intercept)                 -590.4      881.4  -0.670 0.505454    
-    ## seasonspring                 567.9      203.6   2.789 0.007015 ** 
-    ## seasonsummer                 889.6      251.7   3.534 0.000780 ***
-    ## seasonfall                  1234.3      181.6   6.795 4.86e-09 ***
-    ## yr2012                      1936.1      115.7  16.737  < 2e-16 ***
-    ## holiday1                  -25797.4    11129.3  -2.318 0.023765 *  
-    ## weathersitclear              400.5      165.2   2.425 0.018233 *  
-    ## weathersitlightRainOrSnow  -2040.6      577.7  -3.532 0.000785 ***
-    ## atemp                      13613.8     2363.2   5.761 2.81e-07 ***
-    ## hum                        -1944.1     2576.0  -0.755 0.453305    
-    ## windspeed                  -1142.1      862.4  -1.324 0.190250    
-    ## I(atemp^2)                -10154.0     2517.9  -4.033 0.000154 ***
-    ## I(hum^2)                     923.5     2360.8   0.391 0.696991    
-    ## holiday1:atemp             61766.0    30760.6   2.008 0.049010 *  
-    ## ---
-    ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
-    ## 
-    ## Residual standard error: 470 on 62 degrees of freedom
-    ## Multiple R-squared:  0.9343, Adjusted R-squared:  0.9205 
-    ## F-statistic: 67.79 on 13 and 62 DF,  p-value: < 2.2e-16
+|            |     mlrFit8 |     mlrFit9 |    mlrFit10 |    mlrFit11 |
+|:-----------|------------:|------------:|------------:|------------:|
+| intercept  |   1.0000000 |   1.0000000 |   1.0000000 |   1.0000000 |
+| RMSE       | 674.8345688 | 890.2712853 | 669.7736201 | 803.3757223 |
+| Rsquared   |   0.8395842 |   0.7216832 |   0.8687878 |   0.7758233 |
+| MAE        | 508.6521079 | 604.0391345 | 508.4251379 | 576.8345204 |
+| RMSESD     | 198.7734794 | 289.8252053 | 109.5160047 | 342.8151692 |
+| RsquaredSD |   0.1123190 |   0.1628864 |   0.0419575 |   0.2027372 |
+| MAESD      |  93.9005590 | 116.7853469 |  82.5070404 | 178.3021033 |
+
+Save the model with the lowest RMSE as our second linear regression
+model.
 
 ``` r
-AIC(mlr12)
+candidates <- list(mlrFit8 = mlrFit8, mlrFit9 = mlrFit9, mlrFit10 = mlrFit10, mlrFit11 = mlrFit11)
+indexLowestRMSE <- which.min(c(candidates[[1]][["results"]]["RMSE"], candidates[[2]][["results"]]["RMSE"], candidates[[3]][["results"]]["RMSE"], candidates[[4]][["results"]]["RMSE"]))
+mlrFinal2 <- candidates[[1]]
+mlrFinal2$call
 ```
 
-    ## [1] 1165.436
+    ## train.formula(form = registered ~ season + yr + mnth + holiday + 
+    ##     weathersit + atemp + hum + windspeed + I(atemp^2), data = dayTrain, 
+    ##     method = "lm", preProcess = c("center", "scale"), trControl = trainControl(method = "repeatedcv", 
+    ##         number = 4, repeats = 3))
 
-``` r
-#marginal decrease in AIC, compare using cross validation
+The model with the lowest RMSE for Thursday is mlrFit10
 
-#fit best candidate models using cross validation w/ caret package
-mlrFit9 <- train(registered ~ season + yr + holiday + weathersit + atemp + hum + windspeed + I(atemp^2) + I(hum^2), data = dayTrain,
-    method = "lm",
-    preProcess = c("center", "scale"),
-    trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3))
+### Random Forest Model
 
-mlrFit10 <- train(registered ~ season + yr + holiday + weathersit + atemp + hum + windspeed + I(atemp^2) + I(hum^2)+ I(windspeed^2), data = dayTrain,
-    method = "lm",
-    preProcess = c("center", "scale"),
-    trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3))
-
-mlrFit11 <- train(registered ~ season + yr + holiday + weathersit + atemp + hum + windspeed + I(atemp^2) + I(hum^2) + holiday:weathersit, data = dayTrain,
-    method = "lm",
-    preProcess = c("center", "scale"),
-    trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3))
-
-mlrFit12 <- train(registered ~ season + yr + holiday + weathersit + atemp + hum + windspeed + I(atemp^2) + I(hum^2) + holiday:atemp, data = dayTrain,
-    method = "lm",
-    preProcess = c("center", "scale"),
-    trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3))
-
-comparison <- data.frame(t(mlrFit9$results), t(mlrFit10$results), t(mlrFit11$results), t(mlrFit12$results))
-colnames(comparison) <- c("mlrFit9", "mlrFit10", "mlrFit11", "mlrFit12")
-comparison
-```
-
-    ##                mlrFit9    mlrFit10    mlrFit11    mlrFit12
-    ## intercept    1.0000000   1.0000000   1.0000000   1.0000000
-    ## RMSE       636.5554048 810.4511287 682.6274040 720.7574802
-    ## Rsquared     0.8683205   0.7644714   0.8548151   0.8065505
-    ## MAE        466.8125403 548.5186040 488.8586525 500.9591062
-    ## RMSESD     196.5630601 318.4012437 244.0813844 286.6360695
-    ## RsquaredSD   0.1041567   0.1736387   0.1121956   0.1703805
-    ## MAESD       95.9986375 141.3768499 121.2371368 123.4261982
-
-``` r
-#The lowest RMSE out of the 4 candidate models varies each time I run cross validation, so I will choose the simplest of the 4, mlrFit9
-mlrBest <- mlrFit9
-
-# for potentially automating choice of model
-# which.min(c(mlrFit9$results["RMSE"], mlrFit10$results["RMSE"], mlrFit11$results["RMSE"], mlrFit12$results["RMSE"]))
-```
+Intro to Random Forest …
 
 ``` r
 rfFit <- train(registered ~ . - instant - casual - cnt, data = dayTrain,
@@ -1251,541 +1066,6 @@ rfFit <- train(registered ~ . - instant - casual - cnt, data = dayTrain,
                trControl = trainControl(method = "repeatedcv", number = 4, repeats = 3),
                preProcess = c("center", "scale"),
                tuneGrid = expand.grid(mtry = c(2, 7, 10:16, 20, 24)))
-```
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables have
-    ## zero variances: holiday1, weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, workingday1
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables have
-    ## zero variances: holiday1, weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, workingday1
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables have
-    ## zero variances: holiday1, weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, workingday1
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables have
-    ## zero variances: holiday1, weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, workingday1
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables have
-    ## zero variances: holiday1, weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, workingday1
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables have
-    ## zero variances: holiday1, weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, workingday1
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables have
-    ## zero variances: holiday1, weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, workingday1
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables have
-    ## zero variances: holiday1, weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, workingday1
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables have
-    ## zero variances: holiday1, weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, workingday1
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables have
-    ## zero variances: holiday1, weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, workingday1
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables have
-    ## zero variances: holiday1, weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, workingday1
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables have
-    ## zero variances: holiday1, weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, workingday1
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables have
-    ## zero variances: holiday1, weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, workingday1
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables have
-    ## zero variances: holiday1, weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, workingday1
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables have
-    ## zero variances: holiday1, weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, workingday1
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables have
-    ## zero variances: holiday1, weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, workingday1
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables have
-    ## zero variances: holiday1, weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, workingday1
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables have
-    ## zero variances: holiday1, weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, workingday1
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables have
-    ## zero variances: holiday1, weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, workingday1
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables have
-    ## zero variances: holiday1, weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, workingday1
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables have
-    ## zero variances: holiday1, weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, workingday1
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables have
-    ## zero variances: holiday1, weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, workingday1
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, weathersitlightRainOrSnow
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, weathersitlightRainOrSnow
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, weathersitlightRainOrSnow
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, weathersitlightRainOrSnow
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, weathersitlightRainOrSnow
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, weathersitlightRainOrSnow
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, weathersitlightRainOrSnow
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, weathersitlightRainOrSnow
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, weathersitlightRainOrSnow
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, weathersitlightRainOrSnow
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, weathersitlightRainOrSnow
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, weathersitlightRainOrSnow
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, weathersitlightRainOrSnow
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, weathersitlightRainOrSnow
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, weathersitlightRainOrSnow
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, weathersitlightRainOrSnow
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, weathersitlightRainOrSnow
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, weathersitlightRainOrSnow
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, weathersitlightRainOrSnow
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, weathersitlightRainOrSnow
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, weathersitlightRainOrSnow
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday, weathersitlightRainOrSnow
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-    ## Warning in preProcess.default(thresh = 0.95, k = 5, freqCut = 19, uniqueCut = 10, : These variables
-    ## have zero variances: weekdaySunday, weekdayMonday, weekdayTuesday, weekdayWednesday, weekdayThursday,
-    ## weekdayFriday
-
-``` r
 rfFit
 ```
 
@@ -1814,3 +1094,35 @@ rfFit
     ## 
     ## RMSE was used to select the optimal model using the smallest value.
     ## The final value used for the model was mtry = 13.
+
+# Comparison of models
+
+Discussion …
+
+``` r
+# declaration of "winner" needs to be automated
+mlrFinal2Pred <- predict(mlrFinal2, newdata = dayTest)
+rfFitPred <- predict(rfFit, newdata = dayTest)
+postResample(mlrFinal2Pred, dayTest$registered)
+```
+
+    ##        RMSE    Rsquared         MAE 
+    ## 775.0547362   0.7947041 607.5893987
+
+``` r
+postResample(rfFitPred, dayTest$registered)
+```
+
+    ##        RMSE    Rsquared         MAE 
+    ## 581.9568670   0.8662371 447.7585056
+
+I added an initial version of my MLR and random forest models, and wrote
+a separate R script (ST558RenderProject2.r) to automate the reports for
+each day of the week. There’s still plenty of clean-up to do with the
+output, but the automation generally seems to be working. Since the
+dataset now includes only one weekday at a time, some of our graphs,
+tables, etc. that included weekday don’t make as much sense. I still
+have some questions about whether we’re supposed to do any initial data
+exploration with the full training set, or if we only work with one day
+at a time. I might post a question on the discussion board or go to
+Wednesday office hours unless it’s clear to you.
