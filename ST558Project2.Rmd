@@ -159,7 +159,7 @@ Since we don't have a domain expert, we need to try to figure out what variables
 
 That leaves temperature, weather, and the working day flag as the most likely to be relevant parameters. Looking at the plots below, I think we can make a few obvious inferences: 
 
-*  looking at the scatter plot on the left, we can see that as the temperature goes up, the number of riders also goes up - at least up to a point. And even in the highest temperatures, ridership is way up over lowest temperatures.
+*  in the scatter plot on the left, we can see that as the temperature goes up, the number of riders also goes up - at least up to a point. And even in the highest temperatures, ridership is way up over lowest temperatures.
 *  the middle figure displays that temperature is highest in spring, summer, and early fall 
 *  looking at the figure on the right, there are very few days of extremely poor weather. Most days are clear, which are the best days for ridership. 
 
@@ -168,7 +168,7 @@ grid.arrange(scatter_james, box_james, hist_james, ncol=3)
 ```
 
 
-```{r summarize}
+```{r carr_summarize}
 summ_james <- dayTrain %>% rename(total = cnt) %>%
               pivot_longer(cols=c(casual, registered, total),
                            names_to = 'metrics',
@@ -385,7 +385,7 @@ Another way to assess constant variance is with the Box-Cox method, which can su
 MASS::boxcox(mlr2)
 ```
 
-We will also look at for signs of nonlinearity, which can indicate the need for quadratic terms for some of the predictors.  The partial residual plots below plot the relationship between each predictor and the response, with the effect of the other predictors removed.
+We will also look at for signs of non-linearity, which can indicate the need for quadratic terms for some of the predictors.  The partial residual plots below plot the relationship between each predictor and the response, with the effect of the other predictors removed.
 ```{r}
 termplot( mlr2, partial.resid = TRUE, terms = c("atemp", "windspeed", "hum"))
 ```
