@@ -15,19 +15,15 @@ knitr::opts_chunk$set(echo = TRUE, error = TRUE)
 library(tidyverse)
 library(caret)
 library(corrplot)
-library(ggplot2)
 library(GGally)
 library(knitr)
 library(faraway)
 library(leaps)
+library(gridExtra)
 ```
 
 # Introduction
-<<<<<<< HEAD
 The data set this program analyzes can be found [here](https://archive.ics.uci.edu/ml/datasets/Bike+Sharing+Dataset). The data describes its volume of riders by a few dimensions: 
-=======
-...
->>>>>>> a65cc61ed2e93602250ed363f0d17b3e3b7ad869
 
 *  season
 *  day of the week
@@ -47,6 +43,19 @@ It is further broken down into three response variables:
 *  Total: casual and registered combined
 
 The split between casual and registered is important, because they behave completely differently, use the service on different days, times, holidays, etc. Often, their behavior is inverse of each other, though the registered rider group is largest portion of riders and would be the primary client of the business. Keeping in mind that the registered client represents the largest portion of the clientele, this program focuses on the registered metric and splits the behavior by each day of the week. 
+
+# Packages
+The following packages are required to run this program: 
+
+*  tidyverse
+*  caret 
+*  corrplot
+*  GGally
+*  knitr
+*  faraway
+*  leaps
+*  gridExtra
+*  leaps
 
 # Data
 We begin by reading in the data, changing the names of some factor levels, and filtering by day of week
@@ -137,18 +146,31 @@ bar_james <- ggplot(data=dayTrain %>%
             ggtitle('Average Number of Riders') +
               xlab('Season') + ylab('Average # of Riders')
   
-box_james <- ggplot(data=dayTrain, aes(x=season, y=temp)) +
+box_james <- ggplot(data=dayTrain, aes(x=mnth, y=temp)) +
              geom_boxplot(aes(color=season))
-box_james
+```
+Looking at the bar graph below, in all seasons the registered user base far out-performs the casual base. This further confirms our plan of analyzing the registered group as the priority. 
+
+```{r, echo=FALSE}
 bar_james
-scatter_james
-hist_james
+```
+
+Since we don't have a domain expert, we need to try to figure out what variables are important and which we could exclude. We already know that the two temperature variables have near perfect correlation, and clearly date is redundant with mnth and yr. I would think season is as well covered by mnth. 
+
+That leaves temperature, weather, and the working day flag as the most likely to be relevant parameters. Looking at the plots below, I think we can make a few obvious inferences: 
+
+*  looking at the scatter plot on the left, we can see that as the temperature goes up, the number of riders also goes up - at least up to a point. And even in the highest temperatures, ridership is way up over lowest temperatures.
+*  the middle figure displays that temperature is highest in spring, summer, and early fall 
+*  looking at the figure on the right, there are very few days of extremely poor weather. Most days are clear, which are the best days for ridership. 
+
+```{r, echo=FALSE, fig.height=9, fig.width=16}
+grid.arrange(scatter_james, box_james, hist_james, ncol=3)
 ```
 
 
 ```{r summarize}
-summ_james <- dayTrain %>% 
-              pivot_longer(cols=c(casual, registered, cnt),
+summ_james <- dayTrain %>% rename(total = cnt) %>%
+              pivot_longer(cols=c(casual, registered, total),
                            names_to = 'metrics',
                            values_to = 'riders') %>%
               group_by(metrics) %>%
@@ -163,7 +185,20 @@ summ_james <- dayTrain %>%
                            names_to = 'Summary',
                            values_to = 'stats') %>%
               pivot_wider(names_from = metrics, values_from = stats)
+
+kable(summ_james, digits=0)
+pct_diff <- round((summ_james$registered[3] / summ_james$casual[3] - 1) 
+                  * 100, 0)
+pct_str <- paste0(pct_diff, '%')
+
+inc_dec <- ''
+if (pct_diff >= 0) {
+  inc_dec <- 'increased'
+} else {
+  inc_dec <- 'decreased'
+}
 ```
+On the day of the week, `r params$dayOfWeek`, ridership by registered users is `r inc_dec` by `r pct_str`.
 
 # Modeling
 We will now fit two linear regression models, using differing approaches, with the goal of creating a model that does a good job of predicting the number of registered riders on any given day, based on the values of the predictor variables in the data set.  We will fit the models using the training data set that we partitioned above, and then test the accuracy of the models' predictions using the test data set.
@@ -171,21 +206,22 @@ We will now fit two linear regression models, using differing approaches, with t
 Linear regression estimates the effect of each predictor variable on the mean value of the response variable, with the other predictor variables held constant.  A linear regression model can be expressed as  
 $$Y_i = \beta_0 + \beta_1X_{i1} + \beta_2X_{i2} + ... + \beta_pX_{ip} + E_i$$
 
-where $Y_i$ is the response, $i$ represents the observation number, $X_{ij}$ are the predictor variables, and $E_i$ is the normally distributed random error. The $\beta_j$ coefficents must be linear, but the predictor variables can be higher order terms (e.g. $x^2$) or interaction terms (e.g. $x_1x_2$).  Creating a model to estimate the response using observed data, we have  
-$$\hat{y_i} = \hat\beta_0 + \hat\beta_1x_{i1} + \hat\beta_2x_{i2} + ... + \hat\beta_px_{ip}$$
+where $Y_i$ is the response, $i$ represents the observation number, $X_{ij}$ are the predictor variables, and $E_i$ is the normally distributed random error. The $\beta_j$ coefficients must be linear, but the predictor variables can be higher order terms (e.g. $x^2$) or interaction terms (e.g. $x_1x_2$).  Creating a model to estimate the response using observed data, we have  
+$\hat{y_i} = \hat\beta_0 + \hat\beta_1x_{i1} + \hat\beta_2x_{i2} + ... + \hat\beta_px_{ip}$
 
 The $\hat\beta_j$ coefficients (estimates for $\beta_j$) are calculated for each predictor variable to minimize the residual sum of squares, using the observed values of $x_{ij}$ and $y_i$  
-$$min_{\beta_0, \beta_1, ..., \beta_p}\sum_{i=1}^{n}(y_i - \beta_0 - \beta_1x_{i1} - \beta_2x_{i2} - ... - \beta_px_{ip})^2$$
+$min_{\beta_0, \beta_1, ..., \beta_p}\sum_{i=1}^{n}(y_i - \beta_0 - \beta_1x_{i1} - \beta_2x_{i2} - ... - \beta_px_{ip})^2$
 
 The linear regression model can be used for inference, to understand the relationships between the predictor variables and the response, as well as for prediction of a mean response given new values of the predictor variables.  There are varying approaches to choosing which predictor variables to include in a linear regression model.  For our first linear regression model, we ....  
 For our second linear regression model, we ....
 
 ### First linear regression model
-```{r carr_bestsub, error = TRUE}
+I am starting with a best subsets approach, meaning we will look at all of the predictors and use cross-validation to choose the one that has the best prediction capability. Since the training set is only around 80 rows, I opted for four-fold cross validation to leave some data in each fold.
+```{r carr_bestsub, warning=FALSE, message=FALSE}
 library(leaps)
 
 data <- dayTrain %>% 
-               filter(weekday == params$dayOfWeek) %>% drop_na() %>%
+               drop_na() %>%
                select(-instant,-dteday, -season, 
                     -weekday, -atemp, -casual, -cnt)
 
@@ -230,18 +266,16 @@ min = which.min(mean_cv_errors)
 #i did 4 fold because there are only about 80 rows of data per weekday
 
 best <- regsubsets(registered ~ ., 
-                     data=data, nvmax=20)
-coef(best, min)
-coef(best, 16)
+                           data=data, nvmax=20)
+best
+lm.fit1$nbest
+lm.fit1 <- lm(registered ~ yr + mnth + weathersit + temp + hum +
+               windspeed +workingday, data=dayTrain)
+coef(lm.fit1)
 ```
-
-```{r}
-fit <- lm(registered ~ temp*hum,
-        data=dayTrain %>% 
-             filter(weekday == params$dayOfWeek) %>% drop_na() %>%
-             select(-instant,-dteday, -season, 
-                    -weekday, -atemp, -casual, -cnt))
-```
+Using best subsets, the following model was obtained:
+`r coef(best, min)`
+`r coef(lm.fit1)`
 
 ### Second linear regression model
 In this approach, we start with a full linear regression model that includes all of the predictor variables.  We will then reduce collinearity (correlation among predictor variables) by removing redundant predictors until we reach an optimal (lowest) AIC.  We will calculate the condition number ($\kappa$) for each of the candidate models, which is a measure of collinearity.  Roughly, $\kappa < 30$ is considered desirable.  Finally, we will choose among several variations of the optimal model (including various higher order terms) using cross validation (described below).
@@ -466,15 +500,47 @@ rfFit <- train(registered ~ . - instant - casual - cnt, data = dayTrain,
                tuneGrid = expand.grid(mtry = c(2, 7, 10:16, 20, 24)))
 rfFit
 ```
+
+### Boosted 
+```{r carr_boost, warning=FALSE, message=FALSE}
+n.trees <- seq(5, 100, 5)
+int.depth <- 1:10
+shrinkage <- seq(0.05, 0.2, 0.05)
+minobs <- seq(2, 12, 2)
+grid <- expand.grid(n.trees = n.trees, 
+                    interaction.depth = int.depth, 
+                    shrinkage = shrinkage, 
+                    n.minobsinnode = minobs)
+
+trControl <- trainControl(method='repeatedcv', number=4, repeats=10)
+set.seed(1)
+fit_boost <- train(registered ~ ., 
+                   data=dayTrain %>% 
+                        drop_na() %>%
+                        select(-instant,-dteday, -season, 
+                               -weekday, -atemp, -casual, -cnt),
+                   method='gbm',
+                   tuneGrid = grid,
+                   trControl=trControl, 
+                   verbose=FALSE)
+
+
+```
+
 # Comparison of models
 Discussion
 ...
 ```{r}
 # declaration of "winner" needs to be automated
+mlrFinal1Pred <- predict(lm.fit1, newdata=dayTest)
 mlrFinal2Pred <- predict(mlrFinal2, newdata = dayTest)
 rfFitPred <- predict(rfFit, newdata = dayTest)
+boostPred <- predict(fit_boost, newdata=dayTest)
+postResample(mlrFinal1Pred, dayTest$registered)
 postResample(mlrFinal2Pred, dayTest$registered)
 postResample(rfFitPred, dayTest$registered)
+postResample(boostPred, dayTest$registered)
+
 ```
 
 I added an initial version of my MLR and random forest models, and wrote a separate R script (ST558RenderProject2.r) to automate the reports for each day of the week.  There's still plenty of clean-up to do with the output, but the automation generally seems to be working.  Since the dataset now includes only one weekday at a time, some of our graphs, tables, etc. that included weekday don't make as much sense.  I still have some questions about whether we're supposed to do any initial data exploration with the full training set, or if we only work with one day at a time.  I might post a question on the discussion board or go to Wednesday office hours unless it's clear to you.
