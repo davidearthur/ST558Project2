@@ -294,7 +294,7 @@ e <- eigen(t(x) %*% x)
 # sqrt(e$val[1]/min(e$val))
 ```
 
-For `mnth`, `weathersit`, and `windspeed`, removal from the model results in only marginal change to AIC.  If our main goal were inference and understanding the relationships between the variables, we might want to remove them from the model for the sake of simplicity, interpretability, and more narrow confidence intervals.  Because our primary goal here is prediction, we will leave them in the model, and choose mlr2 as our base linear regression model.
+For `mnth`, `weathersit`, and `windspeed`, removal from the model results in an increase or  marginal decrease to AIC.  If our main goal were inference and understanding the relationships between the variables, we might want to remove them from the model for the sake of simplicity, interpretability, and more narrow confidence intervals.  Because our primary goal here is prediction, we will leave them in the model, and choose mlr2 as our base linear regression model.
 
 We will now do some diagnostic plots on our base model, and then consider adding higher order terms to the model.
 ```{r}
