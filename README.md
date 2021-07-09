@@ -16,11 +16,12 @@ The following packages are required to run this program:
 *  leaps
 
 ## Links to Each Day of the Week
-For each day of the week, we looked at summary statistics and created multiple models to predict the number of registered riders. You can find each day's analyses at the following links:
-[Sunday](https://github.com/davidearthur/ST558Project2/blob/main/Sunday.md)
-[Monday](https://github.com/davidearthur/ST558Project2/blob/main/Monday.md)
-[Tuesday](https://github.com/davidearthur/ST558Project2/blob/main/Tuesday.md)
-[Wednesday](https://github.com/davidearthur/ST558Project2/blob/main/Wednesday.md)
-[Thursday](https://github.com/davidearthur/ST558Project2/blob/main/Thursday.md)
-[Friday](https://github.com/davidearthur/ST558Project2/blob/main/Friday.md)
-[Saturday](https://github.com/davidearthur/ST558Project2/blob/main/Saturday.md)
+For each day of the week, we looked at summary statistics and created multiple models to predict the number of registered riders. You can find each day's analyses at the following links: 
+
+*  [Sunday](https://github.com/davidearthur/ST558Project2/blob/main/Sunday.md)
+*  [Monday](https://github.com/davidearthur/ST558Project2/blob/main/Monday.md)
+*  [Tuesday](https://github.com/davidearthur/ST558Project2/blob/main/Tuesday.md)
+*  [Wednesday](https://github.com/davidearthur/ST558Project2/blob/main/Wednesday.md)
+*  [Thursday](https://github.com/davidearthur/ST558Project2/blob/main/Thursday.md)
+*  [Friday](https://github.com/davidearthur/ST558Project2/blob/main/Friday.md)
+*  [Saturday](https://github.com/davidearthur/ST558Project2/blob/main/Saturday.md)
