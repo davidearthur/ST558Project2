@@ -4,6 +4,7 @@ David Arthur
 6/28/2021
 
 -   [Introduction](#introduction)
+-   [Packages](#packages)
 -   [Data](#data)
 -   [Summarizations](#summarizations)
 -   [Modeling](#modeling)
@@ -11,10 +12,54 @@ David Arthur
     -   [Second linear regression
         model](#second-linear-regression-model)
     -   [Random Forest Model](#random-forest-model)
+    -   [Boosted](#boosted)
+-   [Comparison of models](#comparison-of-models)
 
 # Introduction
 
-…
+The data set this program analyzes can be found
+[here](https://archive.ics.uci.edu/ml/datasets/Bike+Sharing+Dataset).
+The data describes its volume of riders by a few dimensions:
+
+-   season
+-   day of the week
+-   year
+-   month
+-   holiday (y/n flag)
+-   working day (y/n flag)
+-   weather (good, fair, poor, bad)
+-   temperature
+-   humidity
+-   wind
+
+It is further broken down into three response variables:
+
+-   Casual: non-registered riders who use the service casually
+-   Registered: registered riders who use the service more regularly
+-   Total: casual and registered combined
+
+The split between casual and registered is important, because they
+behave completely differently, use the service on different days, times,
+holidays, etc. Often, their behavior is inverse of each other, though
+the registered rider group is largest portion of riders and would be the
+primary client of the business. Keeping in mind that the registered
+client represents the largest portion of the clientele, this program
+focuses on the registered metric and splits the behavior by each day of
+the week.
+
+# Packages
+
+The following packages are required to run this program:
+
+-   tidyverse
+-   caret
+-   corrplot
+-   GGally
+-   knitr
+-   faraway
+-   leaps
+-   gridExtra
+-   leaps
 
 # Data
 
@@ -140,91 +185,111 @@ kable(meanByWeather, digits = 1, col.names = c("Weather", "Mean Casual Riders", 
 
 | Weather         | Mean Casual Riders | Mean Registered Riders | Mean Total Riders |
 |:----------------|-------------------:|-----------------------:|------------------:|
-| mist            |             1187.1 |                 2782.8 |            3969.9 |
-| clear           |             1671.3 |                 3370.3 |            5041.7 |
-| lightRainOrSnow |              692.5 |                 1934.5 |            2627.0 |
+| mist            |              698.9 |                 3709.8 |            4408.7 |
+| clear           |              691.3 |                 3786.5 |            4477.8 |
+| lightRainOrSnow |              111.0 |                 1282.5 |            1393.5 |
 
 Average \# of riders by weather category
 
 Exploratory data analysis and summary (James)
 
 ``` r
-ggpairs(dayTrain %>% select(-instant,-dteday, -season, -yr, -cnt, -weekday), 
-        ggplot2::aes(colour=workingday))
-```
+scatter_james <- ggplot(data=dayTrain, aes(x=temp, y=registered)) +
+                 geom_point(aes(color=weathersit))
+hist_james <- ggplot(data=dayTrain, aes(x=weathersit)) +
+              geom_histogram(stat='count', aes(fill=workingday)) +
+              ggtitle('Frequency of Weather') +
+              xlab('Weather Type') + ylab('Count')
 
-![](ST558Project2_files/figure-gfm/carr_explore-1.png)<!-- --> Notes
-from looking at ggpairs plots: Working days are the highest usage for
-registered riders, but non-working days are the highest usage for casual
-riders. Registered riders are the primary volume, so we definitely care
-most about them but worth keeping in mind. There are two types of
-non-working days: weekends and holidays, and there is a difference in
-volume for each of those rider types depending on whether it is a
-holiday or a weekend.
-
-Air temperature and temperature are nearly 100% correlated. We should
-probably figure out which one of them we want to use. Speaking of
-correlated, can we drop the date and only use months? Unfortunately, it
-looks like we need to keep the year field as well, since year 2 had
-better performance than year 1. Do we want to keep season and month? I
-lean towards keeping year and month, but dropping season and date. Let
-me know what you think.
-
-Looking at the scatter of casual vs registered, broken out by working
-day, it’s crazy how separate the linear relationships look:
-
-``` r
-g <- ggplot(data=dayTrain, aes(x=registered, y=casual))
-g + geom_point(aes(color=workingday))
-```
-
-![](ST558Project2_files/figure-gfm/unnamed-chunk-7-1.png)<!-- --> On
-working days, registered bikes are the main rider group. On non-working
-days, it switches to casual. Looking at day of the week, we may be able
-to exclude it since it will be covered by the working day flag and
-holiday flag, but I guess we can check the models to see if it provides
-anything extra.
-
-``` r
-g <- ggplot(data=dayTrain %>% 
-                 select(weekday, casual, registered) %>%
+bar_james <- ggplot(data=dayTrain %>% 
+                 select(season, casual, registered) %>%
                  pivot_longer(cols=c(casual, registered),
                               names_to = 'metrics',
                               values_to = 'riders') %>%
-                 group_by(weekday, metrics) %>%
+                 group_by(season, metrics) %>%
                  summarise(avg_riders = mean(riders)), 
-            aes(x=weekday, y=avg_riders, fill=metrics))
+            aes(x=season, y=avg_riders, fill=metrics)) +     
+            geom_bar(stat='identity', position='dodge') +
+            ggtitle('Average Number of Riders') +
+              xlab('Season') + ylab('Average # of Riders')
+  
+box_james <- ggplot(data=dayTrain, aes(x=mnth, y=temp)) +
+             geom_boxplot(aes(color=season))
 ```
 
-    ## `summarise()` has grouped output by 'weekday'. You can override using the `.groups` argument.
+Looking at the bar graph below, in all seasons the registered user base
+far out-performs the casual base. This further confirms our plan of
+analyzing the registered group as the priority.
 
-``` r
-g + geom_bar(stat='identity', position='dodge')
-```
+![](ST558Project2_files/figure-gfm/unnamed-chunk-7-1.png)<!-- -->
+
+Since we don’t have a domain expert, we need to try to figure out what
+variables are important and which we could exclude. We already know that
+the two temperature variables have near perfect correlation, and clearly
+date is redundant with mnth and yr. I would think season is as well
+covered by mnth.
+
+That leaves temperature, weather, and the working day flag as the most
+likely to be relevant parameters. Looking at the plots below, I think we
+can make a few obvious inferences:
+
+-   looking at the scatter plot on the left, we can see that as the
+    temperature goes up, the number of riders also goes up - at least up
+    to a point. And even in the highest temperatures, ridership is way
+    up over lowest temperatures.
+-   the middle figure displays that temperature is highest in spring,
+    summer, and early fall
+-   looking at the figure on the right, there are very few days of
+    extremely poor weather. Most days are clear, which are the best days
+    for ridership.
 
 ![](ST558Project2_files/figure-gfm/unnamed-chunk-8-1.png)<!-- -->
-Looking at this graph, weekday definitely seems relatively stable across
-the days (working days for registered and non-working days for casual
-are the jumps), but there may be enough variation to include it.
 
-\#\#I like this graph. I thought about doing one like it, but wasn’t
-sure how to code it. pivot\_longer hadn’t occurred to me.
+``` r
+summ_james <- dayTrain %>% rename(total = cnt) %>%
+              pivot_longer(cols=c(casual, registered, total),
+                           names_to = 'metrics',
+                           values_to = 'riders') %>%
+              group_by(metrics) %>%
+              summarise(min = min(riders),
+                        lower25 = quantile(riders, 0.25),
+                        median = median(riders),
+                        mean = mean(riders),
+                        upper75 = quantile(riders, 0.75),
+                        max = max(riders))  %>%
+              pivot_longer(cols=c(min, lower25, median,
+                                  mean, upper75, max),
+                           names_to = 'Summary',
+                           values_to = 'stats') %>%
+              pivot_wider(names_from = metrics, values_from = stats)
 
-\#\#About which variables to include, I agree with your comments. My
-understanding is that each of us comes up with our own models (I do a
-linear regression and a random forest, you do a linear regression and a
-boosted tree), so you and I don’t need to include the same predictors.
-We do need to agree ahead of time on which response we’re going to model
-(casual, registered, or cnt), so that the results of the 4 models can be
-compared to each other. I’m fine with any of the 3. Do you have a
-preference?
+kable(summ_james, digits=0)
+```
 
-Yeah, no preference here either. I guess we could just say registered
-since it’s the highest volume customer, and if we were doing this
-analysis for that company then registered users would be the most
-important group.
+| Summary | casual | registered | total |
+|:--------|-------:|-----------:|------:|
+| min     |      2 |         20 |    22 |
+| lower25 |    308 |       2608 |  3327 |
+| median  |    690 |       3590 |  4360 |
+| mean    |    679 |       3693 |  4372 |
+| upper75 |    904 |       4923 |  5917 |
+| max     |   3065 |       6435 |  7525 |
 
-\#\#Sounds good, we’ll go with registered.
+``` r
+pct_diff <- round((summ_james$registered[3] / summ_james$casual[3] - 1) 
+                  * 100, 0)
+pct_str <- paste0(pct_diff, '%')
+
+inc_dec <- ''
+if (pct_diff >= 0) {
+  inc_dec <- 'increased'
+} else {
+  inc_dec <- 'decreased'
+}
+```
+
+On the day of the week, Monday, ridership by registered users is
+increased by 420%.
 
 # Modeling
 
@@ -243,17 +308,17 @@ held constant. A linear regression model can be expressed as
 where *Y*<sub>*i*</sub> is the response, *i* represents the observation
 number, *X*<sub>*i**j*</sub> are the predictor variables, and
 *E*<sub>*i*</sub> is the normally distributed random error. The
-*β*<sub>*j*</sub> coefficents must be linear, but the predictor
+*β*<sub>*j*</sub> coefficients must be linear, but the predictor
 variables can be higher order terms (e.g. *x*<sup>2</sup>) or
 interaction terms (e.g. *x*<sub>1</sub>*x*<sub>2</sub>). Creating a
 model to estimate the response using observed data, we have  
-$$\\hat{y\_i} = \\hat\\beta\_0 + \\hat\\beta\_1x\_{i1} + \\hat\\beta\_2x\_{i2} + ... + \\hat\\beta\_px\_{ip}$$
+$\\hat{y\_i} = \\hat\\beta\_0 + \\hat\\beta\_1x\_{i1} + \\hat\\beta\_2x\_{i2} + ... + \\hat\\beta\_px\_{ip}$
 
 The *β̂*<sub>*j*</sub> coefficients (estimates for *β*<sub>*j*</sub>) are
 calculated for each predictor variable to minimize the residual sum of
 squares, using the observed values of *x*<sub>*i**j*</sub> and
 *y*<sub>*i*</sub>  
-$$min\_{\\beta\_0, \\beta\_1, ..., \\beta\_p}\\sum\_{i=1}^{n}(y\_i - \\beta\_0 - \\beta\_1x\_{i1} - \\beta\_2x\_{i2} - ... - \\beta\_px\_{ip})^2$$
+$min\_{\\beta\_0, \\beta\_1, ..., \\beta\_p}\\sum\_{i=1}^{n}(y\_i - \\beta\_0 - \\beta\_1x\_{i1} - \\beta\_2x\_{i2} - ... - \\beta\_px\_{ip})^2$
 
 The linear regression model can be used for inference, to understand the
 relationships between the predictor variables and the response, as well
@@ -265,11 +330,17 @@ For our second linear regression model, we ….
 
 ### First linear regression model
 
+I am starting with a best subsets approach, meaning we will look at all
+of the predictors and use cross-validation to choose the one that has
+the best prediction capability. Since the training set is only around 80
+rows, I opted for four-fold cross validation to leave some data in each
+fold.
+
 ``` r
 library(leaps)
 
 data <- dayTrain %>% 
-               filter(weekday == params$dayOfWeek) %>% drop_na() %>%
+               drop_na() %>%
                select(-instant,-dteday, -season, 
                     -weekday, -atemp, -casual, -cnt)
 
@@ -300,17 +371,15 @@ for (j in 1:k) {
     pred <- predict(best, data[folds==j,], id=i)
     
     
-    cv_errors[j, i] <- mean((temp_data$registered[folds==j]-pred)^2)
+    cv_errors[j, i] <- mean((data$registered[folds==j]-pred)^2)
   }
 }
 ```
 
-    ## Warning in leaps.setup(x, y, wt = wt, nbest = nbest, nvmax = nvmax, force.in =
-    ## force.in, : 2 linear dependencies found
-
     ## Reordering variables and trying again:
-
-    ## Error in mean((temp_data$registered[folds == j] - pred)^2): object 'temp_data' not found
+    ## Reordering variables and trying again:
+    ## Reordering variables and trying again:
+    ## Reordering variables and trying again:
 
 ``` r
 # Take the mean of over all folds for each model size
@@ -322,28 +391,77 @@ min = which.min(mean_cv_errors)
 #the model w/ 14 variables was best when using 4 fold cv.
 #i did 4 fold because there are only about 80 rows of data per weekday
 
-best_full <- regsubsets(registered ~ ., 
-                     data=temp_data[folds!=j,], nvmax=20)
+best <- regsubsets(registered ~ ., 
+                           data=data, nvmax=20)
 ```
 
-    ## Error in is.data.frame(data): object 'temp_data' not found
+    ## Reordering variables and trying again:
 
 ``` r
-fit <- lm(registered ~ temp*hum,
-        data=dayTrain %>% 
-             filter(weekday == params$dayOfWeek) %>% drop_na() %>%
-             select(-instant,-dteday, -season, 
-                    -weekday, -atemp, -casual, -cnt))
+best
 ```
+
+    ## Subset selection object
+    ## Call: regsubsets.formula(registered ~ ., data = data, nvmax = 20)
+    ## 19 Variables  (and intercept)
+    ##                           Forced in Forced out
+    ## yr2012                        FALSE      FALSE
+    ## mnth2                         FALSE      FALSE
+    ## mnth3                         FALSE      FALSE
+    ## mnth4                         FALSE      FALSE
+    ## mnth5                         FALSE      FALSE
+    ## mnth6                         FALSE      FALSE
+    ## mnth7                         FALSE      FALSE
+    ## mnth8                         FALSE      FALSE
+    ## mnth9                         FALSE      FALSE
+    ## mnth10                        FALSE      FALSE
+    ## mnth11                        FALSE      FALSE
+    ## mnth12                        FALSE      FALSE
+    ## holiday1                      FALSE      FALSE
+    ## weathersitclear               FALSE      FALSE
+    ## weathersitlightRainOrSnow     FALSE      FALSE
+    ## temp                          FALSE      FALSE
+    ## hum                           FALSE      FALSE
+    ## windspeed                     FALSE      FALSE
+    ## workingday1                   FALSE      FALSE
+    ## 1 subsets of each size up to 18
+    ## Selection Algorithm: exhaustive
 
 ``` r
-names(dayTrain)
+lm.fit1$nbest
 ```
 
-    ##  [1] "instant"    "dteday"     "season"     "yr"         "mnth"      
-    ##  [6] "holiday"    "weekday"    "workingday" "weathersit" "temp"      
-    ## [11] "atemp"      "hum"        "windspeed"  "casual"     "registered"
-    ## [16] "cnt"
+    ## Error in eval(expr, envir, enclos): object 'lm.fit1' not found
+
+``` r
+lm.fit1 <- lm(registered ~ yr + mnth + weathersit + temp + hum +
+               windspeed +workingday, data=dayTrain)
+coef(lm.fit1)
+```
+
+    ##               (Intercept)                    yr2012                     mnth2 
+    ##                 451.99177                1622.21836                  23.36436 
+    ##                     mnth3                     mnth4                     mnth5 
+    ##                 117.72471                -305.19445                -449.15930 
+    ##                     mnth6                     mnth7                     mnth8 
+    ##                 235.04148                -516.89607                -223.46168 
+    ##                     mnth9                    mnth10                    mnth11 
+    ##                 930.42645                 766.20462                1578.19219 
+    ##                    mnth12           weathersitclear weathersitlightRainOrSnow 
+    ##                 378.45783                 292.32566               -2530.04236 
+    ##                      temp                       hum                 windspeed 
+    ##                5530.64950               -1488.74207               -2326.14680 
+    ##               workingday1 
+    ##                 832.62127
+
+Using best subsets, the following model was obtained: 1047.9513607,
+1583.4310196, -548.478257, -720.5805614, -174.4609742, -887.7506557,
+-602.3925171, 611.0315934, 615.5440469, 1474.4444767, 285.1701316, 0,
+-2529.562122, 6260.7394072, -2295.5544202, -2788.0792387, 895.5168211
+451.9917701, 1622.2183602, 23.364355, 117.7247083, -305.19445,
+-449.1592987, 235.0414807, -516.8960656, -223.4616839, 930.4264457,
+766.2046235, 1578.1921891, 378.4578304, 292.3256572, -2530.0423627,
+5530.6494986, -1488.7420743, -2326.1467953, 832.6212736
 
 ### Second linear regression model
 
@@ -377,49 +495,51 @@ summary(mlrFull)
     ## 
     ## Call:
     ## lm(formula = registered ~ dteday + season + yr + mnth + weathersit + 
-    ##     temp + atemp + hum + windspeed, data = dayTrain)
+    ##     temp + atemp + hum + windspeed + workingday + holiday, data = dayTrain)
     ## 
     ## Residuals:
     ##      Min       1Q   Median       3Q      Max 
-    ## -1186.15  -213.57   -14.13   218.83  1002.73 
+    ## -1540.70  -319.12    26.43   373.50  1398.13 
     ## 
-    ## Coefficients:
+    ## Coefficients: (1 not defined because of singularities)
     ##                             Estimate Std. Error t value Pr(>|t|)    
-    ## (Intercept)               150236.781 112993.387   1.330   0.1893    
-    ## dteday                        -9.981      7.542  -1.323   0.1914    
-    ## seasonspring                 922.775    448.552   2.057   0.0446 *  
-    ## seasonsummer                 930.220    442.412   2.103   0.0403 *  
-    ## seasonfall                  1766.784    328.780   5.374 1.76e-06 ***
-    ## yr2012                      5296.895   2784.147   1.903   0.0625 .  
-    ## mnth2                        546.558    439.877   1.243   0.2195    
-    ## mnth3                       1115.675    577.739   1.931   0.0588 .  
-    ## mnth4                        858.936    983.044   0.874   0.3862    
-    ## mnth5                       1449.638   1178.162   1.230   0.2240    
-    ## mnth6                       1860.343   1393.776   1.335   0.1877    
-    ## mnth7                       1985.744   1609.330   1.234   0.2227    
-    ## mnth8                       2151.102   1779.539   1.209   0.2321    
-    ## mnth9                       3158.701   1960.297   1.611   0.1130    
-    ## mnth10                      2711.448   2174.549   1.247   0.2179    
-    ## mnth11                      2271.923   2356.105   0.964   0.3393    
-    ## mnth12                      3207.932   2579.366   1.244   0.2191    
-    ## weathersitclear              154.292    190.396   0.810   0.4213    
-    ## weathersitlightRainOrSnow   -741.065    464.233  -1.596   0.1164    
-    ## temp                       -8626.436   5957.619  -1.448   0.1535    
-    ## atemp                      12584.634   6194.986   2.031   0.0472 *  
-    ## hum                        -1053.077    644.218  -1.635   0.1080    
-    ## windspeed                  -1916.409    980.161  -1.955   0.0558 .  
+    ## (Intercept)                27299.392 142681.262   0.191   0.8490    
+    ## dteday                        -1.724      9.525  -0.181   0.8571    
+    ## seasonspring                1612.503    647.957   2.489   0.0161 *  
+    ## seasonsummer                2008.652    658.699   3.049   0.0036 ** 
+    ## seasonfall                  2579.697    539.710   4.780 1.48e-05 ***
+    ## yr2012                      2266.193   3493.561   0.649   0.5194    
+    ## mnth2                        211.286    455.325   0.464   0.6446    
+    ## mnth3                        339.353    708.660   0.479   0.6340    
+    ## mnth4                      -1010.744   1189.185  -0.850   0.3993    
+    ## mnth5                      -1041.008   1441.878  -0.722   0.4735    
+    ## mnth6                       -358.600   1710.065  -0.210   0.8347    
+    ## mnth7                      -1163.167   1978.074  -0.588   0.5591    
+    ## mnth8                       -859.847   2279.174  -0.377   0.7075    
+    ## mnth9                       -100.476   2522.655  -0.040   0.9684    
+    ## mnth10                      -793.125   2756.383  -0.288   0.7747    
+    ## mnth11                       -12.831   2985.169  -0.004   0.9966    
+    ## mnth12                      -522.406   3255.093  -0.160   0.8731    
+    ## weathersitclear               90.549    223.173   0.406   0.6866    
+    ## weathersitlightRainOrSnow  -2440.911    544.317  -4.484 4.06e-05 ***
+    ## temp                         241.879   6659.400   0.036   0.9712    
+    ## atemp                       3928.361   7562.358   0.519   0.6056    
+    ## hum                        -2228.487   1006.203  -2.215   0.0312 *  
+    ## windspeed                  -3025.800   1319.639  -2.293   0.0259 *  
+    ## workingday1                  685.359    269.367   2.544   0.0140 *  
+    ## holiday1                          NA         NA      NA       NA    
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
     ## 
-    ## Residual standard error: 519.8 on 53 degrees of freedom
-    ## Multiple R-squared:  0.902,  Adjusted R-squared:  0.8613 
-    ## F-statistic: 22.17 on 22 and 53 DF,  p-value: < 2.2e-16
+    ## Residual standard error: 627.9 on 52 degrees of freedom
+    ## Multiple R-squared:  0.8806, Adjusted R-squared:  0.8278 
+    ## F-statistic: 16.67 on 23 and 52 DF,  p-value: < 2.2e-16
 
 ``` r
 AIC(mlrFull)
 ```
 
-    ## [1] 1186.811
+    ## [1] 1216.089
 
 ``` r
 x <- model.matrix(mlrFull)[, -1]
@@ -428,7 +548,7 @@ e <- eigen(t(x) %*% x)
 # condition number = sqrt(e$val[1]/min(e$val))
 ```
 
-We see that *κ* = 2.2038974^{6}, which is a sign of high collinearity,
+We see that *κ* = 4.3021267^{7}, which is a sign of high collinearity,
 so we begin removing insignificant predictors one at a time, each time
 checking to confirm that AIC declines, or at least that it increases
 only marginally.
@@ -463,47 +583,48 @@ summary(mlr2)
     ## 
     ## Call:
     ## lm(formula = registered ~ season + yr + mnth + weathersit + atemp + 
-    ##     hum + windspeed, data = dayTrain)
+    ##     hum + windspeed + holiday, data = dayTrain)
     ## 
     ## Residuals:
     ##      Min       1Q   Median       3Q      Max 
-    ## -1339.31  -226.56    32.84   231.38  1049.40 
+    ## -1532.28  -325.76    31.17   384.35  1399.94 
     ## 
     ## Coefficients:
     ##                           Estimate Std. Error t value Pr(>|t|)    
-    ## (Intercept)                  977.4      573.2   1.705  0.09378 .  
-    ## seasonspring                1128.9      445.0   2.537  0.01405 *  
-    ## seasonsummer                 926.4      448.7   2.065  0.04370 *  
-    ## seasonfall                  1848.7      332.7   5.557 8.27e-07 ***
-    ## yr2012                      1566.8      126.1  12.422  < 2e-16 ***
-    ## mnth2                        209.0      383.3   0.545  0.58786    
-    ## mnth3                        447.7      375.9   1.191  0.23873    
-    ## mnth4                       -421.1      606.8  -0.694  0.49056    
-    ## mnth5                       -219.6      665.3  -0.330  0.74260    
-    ## mnth6                       -237.5      689.4  -0.344  0.73180    
-    ## mnth7                       -416.0      727.8  -0.572  0.56991    
-    ## mnth8                       -374.8      680.8  -0.550  0.58423    
-    ## mnth9                        396.8      601.3   0.660  0.51209    
-    ## mnth10                      -215.9      561.6  -0.384  0.70220    
-    ## mnth11                      -927.4      481.0  -1.928  0.05901 .  
-    ## mnth12                      -283.3      358.3  -0.791  0.43260    
-    ## weathersitclear              127.0      193.1   0.658  0.51344    
-    ## weathersitlightRainOrSnow   -577.7      461.9  -1.251  0.21633    
-    ## atemp                       3768.8     1165.2   3.235  0.00206 ** 
-    ## hum                        -1092.4      656.2  -1.665  0.10168    
-    ## windspeed                  -2663.1      913.0  -2.917  0.00511 ** 
+    ## (Intercept)                2161.05     757.53   2.853  0.00613 ** 
+    ## seasonspring               1612.83     620.42   2.600  0.01201 *  
+    ## seasonsummer               2016.78     635.44   3.174  0.00248 ** 
+    ## seasonfall                 2593.36     523.88   4.950 7.64e-06 ***
+    ## yr2012                     1633.36     155.66  10.493 1.21e-14 ***
+    ## mnth2                       163.28     367.75   0.444  0.65882    
+    ## mnth3                       239.74     428.51   0.559  0.57816    
+    ## mnth4                     -1167.33     777.13  -1.502  0.13889    
+    ## mnth5                     -1252.94     783.83  -1.598  0.11577    
+    ## mnth6                      -623.54     804.89  -0.775  0.44190    
+    ## mnth7                     -1478.51     848.18  -1.743  0.08700 .  
+    ## mnth8                     -1234.78     829.29  -1.489  0.14232    
+    ## mnth9                      -534.02     704.34  -0.758  0.45164    
+    ## mnth10                    -1280.71     609.96  -2.100  0.04045 *  
+    ## mnth11                     -542.93     606.45  -0.895  0.37462    
+    ## mnth12                    -1106.99     488.94  -2.264  0.02761 *  
+    ## weathersitclear              84.29     210.88   0.400  0.69097    
+    ## weathersitlightRainOrSnow -2456.62     527.47  -4.657 2.13e-05 ***
+    ## atemp                      4206.37    1464.75   2.872  0.00582 ** 
+    ## hum                       -2269.12     951.14  -2.386  0.02058 *  
+    ## windspeed                 -3020.52    1262.72  -2.392  0.02026 *  
+    ## holiday1                   -687.67     247.39  -2.780  0.00747 ** 
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
     ## 
-    ## Residual standard error: 529.9 on 55 degrees of freedom
-    ## Multiple R-squared:  0.8943, Adjusted R-squared:  0.8559 
-    ## F-statistic: 23.27 on 20 and 55 DF,  p-value: < 2.2e-16
+    ## Residual standard error: 616.4 on 54 degrees of freedom
+    ## Multiple R-squared:  0.8805, Adjusted R-squared:  0.834 
+    ## F-statistic: 18.95 on 21 and 54 DF,  p-value: < 2.2e-16
 
 ``` r
 AIC(mlr2)
 ```
 
-    ## [1] 1188.561
+    ## [1] 1212.139
 
 ``` r
 x <- model.matrix(mlr2)[, -1]
@@ -512,8 +633,8 @@ e <- eigen(t(x) %*% x)
 # condition number = sqrt(e$val[1]/min(e$val))
 ```
 
-We see that AIC has changed little, and that *κ* = 39.3, which indicates
-a large reduction in collinearity.
+We see that AIC has changed little, and that *κ* = 39.08, which
+indicates a large reduction in collinearity.
 
 `mnth`, `weathersit` and `windspeed` appear to be marginally
 significant, so we look at the effect of removing each of them from the
@@ -528,36 +649,37 @@ summary(mlr3)
     ## 
     ## Call:
     ## lm(formula = registered ~ season + yr + weathersit + atemp + 
-    ##     hum + windspeed, data = dayTrain)
+    ##     hum + windspeed + holiday, data = dayTrain)
     ## 
     ## Residuals:
-    ##      Min       1Q   Median       3Q      Max 
-    ## -1717.32  -226.17    25.77   280.85  1623.51 
+    ##     Min      1Q  Median      3Q     Max 
+    ## -1931.9  -306.4    35.4   368.7  1849.6 
     ## 
     ## Coefficients:
     ##                           Estimate Std. Error t value Pr(>|t|)    
-    ## (Intercept)                 514.11     591.00   0.870   0.3875    
-    ## seasonspring                554.68     263.52   2.105   0.0391 *  
-    ## seasonsummer                289.83     316.93   0.914   0.3638    
-    ## seasonfall                 1246.86     207.56   6.007 9.00e-08 ***
-    ## yr2012                     1572.12     135.05  11.641  < 2e-16 ***
-    ## weathersitclear              95.18     196.94   0.483   0.6305    
-    ## weathersitlightRainOrSnow  -839.43     451.75  -1.858   0.0676 .  
-    ## atemp                      4753.40     779.23   6.100 6.21e-08 ***
-    ## hum                        -729.23     645.62  -1.130   0.2628    
-    ## windspeed                 -2264.17     875.38  -2.587   0.0119 *  
+    ## (Intercept)                 2237.9      784.3   2.853  0.00580 ** 
+    ## seasonspring                 836.6      435.8   1.920  0.05929 .  
+    ## seasonsummer                1178.8      515.5   2.287  0.02547 *  
+    ## seasonfall                  1835.3      315.5   5.818 1.99e-07 ***
+    ## yr2012                      1619.7      162.1   9.993 9.17e-15 ***
+    ## weathersitclear              132.8      211.0   0.629  0.53142    
+    ## weathersitlightRainOrSnow  -2433.4      564.9  -4.308 5.69e-05 ***
+    ## atemp                       3554.8     1163.1   3.056  0.00325 ** 
+    ## hum                        -2432.9      946.5  -2.570  0.01246 *  
+    ## windspeed                  -2263.9     1286.1  -1.760  0.08306 .  
+    ## holiday1                    -709.8      251.1  -2.827  0.00623 ** 
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
     ## 
-    ## Residual standard error: 577.9 on 66 degrees of freedom
-    ## Multiple R-squared:  0.8492, Adjusted R-squared:  0.8286 
-    ## F-statistic: 41.28 on 9 and 66 DF,  p-value: < 2.2e-16
+    ## Residual standard error: 683.2 on 65 degrees of freedom
+    ## Multiple R-squared:  0.8233, Adjusted R-squared:  0.7961 
+    ## F-statistic: 30.28 on 10 and 65 DF,  p-value: < 2.2e-16
 
 ``` r
 AIC(mlr3)
 ```
 
-    ## [1] 1193.586
+    ## [1] 1219.873
 
 ``` r
 x <- model.matrix(mlr3)[, -1]
@@ -574,7 +696,7 @@ mlr4 <- update(mlr2, . ~ . - weathersit)
 AIC(mlr4)
 ```
 
-    ## [1] 1187.218
+    ## [1] 1233.915
 
 ``` r
 x <- model.matrix(mlr4)[, -1]
@@ -592,7 +714,7 @@ mlr5 <- update(mlr2, . ~ . - windspeed)
 AIC(mlr5)
 ```
 
-    ## [1] 1197.492
+    ## [1] 1217.793
 
 ``` r
 x <- model.matrix(mlr5)[, -1]
@@ -618,21 +740,58 @@ consider adding higher order terms to the model.
 mlrStep <- step(mlrFull)
 ```
 
-    ## Start:  AIC=969.13
+    ## Start:  AIC=998.41
     ## registered ~ dteday + season + yr + mnth + weathersit + temp + 
-    ##     atemp + hum + windspeed
+    ##     atemp + hum + windspeed + workingday + holiday
     ## 
-    ##              Df Sum of Sq      RSS    AIC
-    ## <none>                    14320637 969.13
-    ## - weathersit  2    847907 15168544 969.50
-    ## - dteday      1    473154 14793792 969.60
-    ## - temp        1    566505 14887142 970.08
-    ## - hum         1    722008 15042645 970.87
-    ## - yr          1    978014 15298651 972.15
-    ## - windspeed   1   1032925 15353562 972.43
-    ## - atemp       1   1115031 15435669 972.83
-    ## - mnth       11   6032786 20353424 973.85
-    ## - season      3   8031468 22352106 996.97
+    ## 
+    ## Step:  AIC=998.41
+    ## registered ~ dteday + season + yr + mnth + weathersit + temp + 
+    ##     atemp + hum + windspeed + workingday
+    ## 
+    ##              Df Sum of Sq      RSS     AIC
+    ## - temp        1       520 20504451  996.41
+    ## - dteday      1     12918 20516849  996.46
+    ## - atemp       1    106400 20610331  996.80
+    ## - yr          1    165917 20669847  997.02
+    ## <none>                    20503930  998.41
+    ## - hum         1   1934117 22438048 1003.26
+    ## - windspeed   1   2073022 22576953 1003.73
+    ## - mnth       11   8882048 29385978 1003.76
+    ## - workingday  1   2552599 23056530 1005.33
+    ## - weathersit  2   8023747 28527678 1019.51
+    ## - season      3   9347959 29851889 1020.96
+    ## 
+    ## Step:  AIC=996.41
+    ## registered ~ dteday + season + yr + mnth + weathersit + atemp + 
+    ##     hum + windspeed + workingday
+    ## 
+    ##              Df Sum of Sq      RSS     AIC
+    ## - dteday      1     13102 20517552  994.46
+    ## - yr          1    166477 20670928  995.03
+    ## <none>                    20504451  996.41
+    ## - hum         1   2027047 22531498 1001.58
+    ## - mnth       11   8896501 29400951 1001.80
+    ## - windspeed   1   2165247 22669698 1002.04
+    ## - workingday  1   2846360 23350810 1004.29
+    ## - atemp       1   3117192 23621642 1005.17
+    ## - weathersit  2   8042305 28546756 1017.56
+    ## - season      3   9369419 29873870 1019.01
+    ## 
+    ## Step:  AIC=994.46
+    ## registered ~ season + yr + mnth + weathersit + atemp + hum + 
+    ##     windspeed + workingday
+    ## 
+    ##              Df Sum of Sq      RSS     AIC
+    ## <none>                    20517552  994.46
+    ## - hum         1   2162511 22680064 1000.08
+    ## - windspeed   1   2174091 22691643 1000.11
+    ## - mnth       11   9823764 30341317 1002.19
+    ## - workingday  1   2935929 23453482 1002.62
+    ## - atemp       1   3133407 23650959 1003.26
+    ## - weathersit  2   8284279 28801832 1016.24
+    ## - season      3   9658325 30175877 1017.78
+    ## - yr          1  41837561 62355113 1076.94
 
 ``` r
 names(mlrStep)
@@ -641,29 +800,29 @@ names(mlrStep)
     ##  [1] "coefficients"  "residuals"     "effects"       "rank"         
     ##  [5] "fitted.values" "assign"        "qr"            "df.residual"  
     ##  [9] "contrasts"     "xlevels"       "call"          "terms"        
-    ## [13] "model"         "formula"       "anova"
+    ## [13] "model"         "anova"
 
 ``` r
 mlrStep$call
 ```
 
-    ## lm(formula = registered ~ dteday + season + yr + mnth + weathersit + 
-    ##     temp + atemp + hum + windspeed, data = dayTrain)
+    ## lm(formula = registered ~ season + yr + mnth + weathersit + atemp + 
+    ##     hum + windspeed + workingday, data = dayTrain)
 
 ``` r
 mlr2$call
 ```
 
     ## lm(formula = registered ~ season + yr + mnth + weathersit + atemp + 
-    ##     hum + windspeed, data = dayTrain)
+    ##     hum + windspeed + holiday, data = dayTrain)
 
 ``` r
 AIC(mlr2, mlrStep)
 ```
 
     ##         df      AIC
-    ## mlr2    22 1188.561
-    ## mlrStep 24 1186.811
+    ## mlr2    23 1212.139
+    ## mlrStep 23 1212.139
 
 ``` r
 # does mlr3  agrees with step() choice?
@@ -678,7 +837,7 @@ residuals (difference between fitted response and observed response). A
 plot(mlr2$fitted, mlr3$residuals)
 ```
 
-![](ST558Project2_files/figure-gfm/unnamed-chunk-17-1.png)<!-- -->
+![](ST558Project2_files/figure-gfm/unnamed-chunk-15-1.png)<!-- -->
 
 Another way to assess constant variance is with the Box-Cox method,
 which can suggest transformations of the response to address problems
@@ -690,7 +849,7 @@ problem with the existing model.
 MASS::boxcox(mlr2)
 ```
 
-![](ST558Project2_files/figure-gfm/unnamed-chunk-18-1.png)<!-- -->
+![](ST558Project2_files/figure-gfm/unnamed-chunk-16-1.png)<!-- -->
 
 We will also look at for signs of nonlinearity, which can indicate the
 need for quadratic terms for some of the predictors. The partial
@@ -701,7 +860,7 @@ the response, with the effect of the other predictors removed.
 termplot( mlr2, partial.resid = TRUE, terms = c("atemp", "windspeed", "hum"))
 ```
 
-![](ST558Project2_files/figure-gfm/unnamed-chunk-19-1.png)<!-- -->![](ST558Project2_files/figure-gfm/unnamed-chunk-19-2.png)<!-- -->![](ST558Project2_files/figure-gfm/unnamed-chunk-19-3.png)<!-- -->
+![](ST558Project2_files/figure-gfm/unnamed-chunk-17-1.png)<!-- -->![](ST558Project2_files/figure-gfm/unnamed-chunk-17-2.png)<!-- -->![](ST558Project2_files/figure-gfm/unnamed-chunk-17-3.png)<!-- -->
 
 For at least some days of the week there is a nonlinear pattern to the
 plots, particularly for `atemp`, so we will try adding quadratic terms
@@ -717,50 +876,51 @@ summary(mlr8)
     ## 
     ## Call:
     ## lm(formula = registered ~ season + yr + mnth + weathersit + atemp + 
-    ##     hum + windspeed + I(atemp^2), data = dayTrain)
+    ##     hum + windspeed + holiday + I(atemp^2), data = dayTrain)
     ## 
     ## Residuals:
-    ##      Min       1Q   Median       3Q      Max 
-    ## -1301.37  -238.33    22.15   208.32  1052.66 
+    ##     Min      1Q  Median      3Q     Max 
+    ## -1566.9  -365.9   -44.7   354.1  1391.6 
     ## 
     ## Coefficients:
-    ##                            Estimate Std. Error t value Pr(>|t|)    
-    ## (Intercept)                 309.978    789.177   0.393  0.69602    
-    ## seasonspring               1093.657    443.913   2.464  0.01697 *  
-    ## seasonsummer               1016.148    452.698   2.245  0.02891 *  
-    ## seasonfall                 1847.706    331.185   5.579 7.99e-07 ***
-    ## yr2012                     1574.241    125.704  12.523  < 2e-16 ***
-    ## mnth2                        -2.848    419.018  -0.007  0.99460    
-    ## mnth3                       245.970    408.843   0.602  0.54994    
-    ## mnth4                      -544.437    612.374  -0.889  0.37791    
-    ## mnth5                      -252.318    662.865  -0.381  0.70496    
-    ## mnth6                      -158.206    689.375  -0.229  0.81935    
-    ## mnth7                      -287.448    732.106  -0.393  0.69614    
-    ## mnth8                      -335.113    678.531  -0.494  0.62339    
-    ## mnth9                       308.763    602.888   0.512  0.61064    
-    ## mnth10                     -392.841    577.490  -0.680  0.49925    
-    ## mnth11                    -1146.486    511.185  -2.243  0.02904 *  
-    ## mnth12                     -469.428    387.773  -1.211  0.23133    
-    ## weathersitclear             171.639    195.686   0.877  0.38431    
-    ## weathersitlightRainOrSnow  -766.691    485.037  -1.581  0.11979    
-    ## atemp                      7992.958   3640.404   2.196  0.03244 *  
-    ## hum                       -1042.652    654.550  -1.593  0.11701    
-    ## windspeed                 -2485.053    920.435  -2.700  0.00924 ** 
-    ## I(atemp^2)                -5503.314   4495.577  -1.224  0.22621    
+    ##                           Estimate Std. Error t value Pr(>|t|)    
+    ## (Intercept)                1177.55    1054.35   1.117  0.26910    
+    ## seasonspring               1361.98     644.21   2.114  0.03922 *  
+    ## seasonsummer               1819.47     648.12   2.807  0.00698 ** 
+    ## seasonfall                 2354.13     550.35   4.278 7.93e-05 ***
+    ## yr2012                     1582.76     159.16   9.945 1.02e-13 ***
+    ## mnth2                       -98.89     414.88  -0.238  0.81251    
+    ## mnth3                       -33.22     472.31  -0.070  0.94419    
+    ## mnth4                     -1342.40     782.76  -1.715  0.09220 .  
+    ## mnth5                     -1272.40     778.43  -1.635  0.10806    
+    ## mnth6                      -626.72     799.20  -0.784  0.43642    
+    ## mnth7                     -1255.14     858.74  -1.462  0.14975    
+    ## mnth8                     -1140.40     826.48  -1.380  0.17343    
+    ## mnth9                      -656.68     705.40  -0.931  0.35611    
+    ## mnth10                    -1459.79     620.41  -2.353  0.02237 *  
+    ## mnth11                     -719.61     616.62  -1.167  0.24843    
+    ## mnth12                    -1200.59     490.55  -2.447  0.01773 *  
+    ## weathersitclear             128.85     212.05   0.608  0.54603    
+    ## weathersitlightRainOrSnow -2447.59     523.79  -4.673 2.08e-05 ***
+    ## atemp                     10740.87    5119.87   2.098  0.04070 *  
+    ## hum                       -2352.26     946.48  -2.485  0.01614 *  
+    ## windspeed                 -2866.23    1259.14  -2.276  0.02689 *  
+    ## holiday1                   -639.96     248.24  -2.578  0.01275 *  
+    ## I(atemp^2)                -7346.30    5518.80  -1.331  0.18884    
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
     ## 
-    ## Residual standard error: 527.6 on 54 degrees of freedom
-    ## Multiple R-squared:  0.8971, Adjusted R-squared:  0.8571 
-    ## F-statistic: 22.43 on 21 and 54 DF,  p-value: < 2.2e-16
+    ## Residual standard error: 612 on 53 degrees of freedom
+    ## Multiple R-squared:  0.8844, Adjusted R-squared:  0.8364 
+    ## F-statistic: 18.43 on 22 and 53 DF,  p-value: < 2.2e-16
 
 ``` r
 AIC(mlr8)
 ```
 
-    ## [1] 1188.48
+    ## [1] 1211.64
 
-Reduced AIC, so keep atemp^2 in base model.
+Reduced or similar AIC, so keep mlr8 as new base model.
 
 Try adding *h**u**m*<sup>2</sup>
 
@@ -772,49 +932,50 @@ summary(mlr9)
     ## 
     ## Call:
     ## lm(formula = registered ~ season + yr + mnth + weathersit + atemp + 
-    ##     hum + windspeed + I(atemp^2) + I(hum^2), data = dayTrain)
+    ##     hum + windspeed + holiday + I(atemp^2) + I(hum^2), data = dayTrain)
     ## 
     ## Residuals:
     ##      Min       1Q   Median       3Q      Max 
-    ## -1237.56  -195.42     5.67   226.02  1030.36 
+    ## -1558.86  -348.74   -13.89   355.57  1436.26 
     ## 
     ## Coefficients:
     ##                           Estimate Std. Error t value Pr(>|t|)    
-    ## (Intercept)                -988.20    1256.21  -0.787   0.4350    
-    ## seasonspring               1045.27     442.38   2.363   0.0218 *  
-    ## seasonsummer                942.99     452.98   2.082   0.0422 *  
-    ## seasonfall                 1878.82     329.75   5.698 5.46e-07 ***
-    ## yr2012                     1539.03     127.65  12.057  < 2e-16 ***
-    ## mnth2                       190.64     441.12   0.432   0.6674    
-    ## mnth3                       263.58     406.26   0.649   0.5193    
-    ## mnth4                      -450.66     612.29  -0.736   0.4650    
-    ## mnth5                      -140.95     663.68  -0.212   0.8326    
-    ## mnth6                       -74.17     687.59  -0.108   0.9145    
-    ## mnth7                      -203.77     729.83  -0.279   0.7812    
-    ## mnth8                      -298.14     674.46  -0.442   0.6603    
-    ## mnth9                       352.47     599.66   0.588   0.5592    
-    ## mnth10                     -450.05     575.16  -0.782   0.4374    
-    ## mnth11                    -1180.07     508.31  -2.322   0.0241 *  
-    ## mnth12                     -496.11     385.64  -1.286   0.2039    
-    ## weathersitclear             115.75     198.89   0.582   0.5630    
-    ## weathersitlightRainOrSnow  -686.65     485.50  -1.414   0.1631    
-    ## atemp                      7852.02    3617.00   2.171   0.0344 *  
-    ## hum                        3423.78    3439.65   0.995   0.3241    
-    ## windspeed                 -2117.76     955.39  -2.217   0.0310 *  
-    ## I(atemp^2)                -5397.70    4465.45  -1.209   0.2321    
-    ## I(hum^2)                  -3598.33    2721.17  -1.322   0.1917    
+    ## (Intercept)                 -187.3     2162.8  -0.087 0.931322    
+    ## seasonspring                1354.6      647.2   2.093 0.041241 *  
+    ## seasonsummer                1804.9      651.4   2.771 0.007736 ** 
+    ## seasonfall                  2423.9      561.2   4.319 7.06e-05 ***
+    ## yr2012                      1601.1      161.9   9.891 1.52e-13 ***
+    ## mnth2                       -171.7      428.7  -0.400 0.690443    
+    ## mnth3                       -134.3      494.6  -0.271 0.787095    
+    ## mnth4                      -1375.1      787.6  -1.746 0.086728 .  
+    ## mnth5                      -1356.3      790.5  -1.716 0.092155 .  
+    ## mnth6                       -714.2      811.9  -0.880 0.383071    
+    ## mnth7                      -1316.4      866.8  -1.519 0.134886    
+    ## mnth8                      -1214.2      836.4  -1.452 0.152621    
+    ## mnth9                       -759.0      722.6  -1.050 0.298388    
+    ## mnth10                     -1647.4      675.0  -2.441 0.018102 *  
+    ## mnth11                      -900.2      667.8  -1.348 0.183484    
+    ## mnth12                     -1275.9      503.6  -2.533 0.014351 *  
+    ## weathersitclear              135.4      213.2   0.635 0.528258    
+    ## weathersitlightRainOrSnow  -2279.0      575.4  -3.960 0.000229 ***
+    ## atemp                      11444.1     5234.0   2.186 0.033303 *  
+    ## hum                         1814.0     5834.3   0.311 0.757105    
+    ## windspeed                  -2740.1     1276.8  -2.146 0.036557 *  
+    ## holiday1                    -670.9      253.0  -2.652 0.010589 *  
+    ## I(atemp^2)                 -8134.5     5649.7  -1.440 0.155917    
+    ## I(hum^2)                   -3264.4     4510.3  -0.724 0.472450    
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
     ## 
-    ## Residual standard error: 523.9 on 53 degrees of freedom
-    ## Multiple R-squared:  0.9004, Adjusted R-squared:  0.8591 
-    ## F-statistic: 21.79 on 22 and 53 DF,  p-value: < 2.2e-16
+    ## Residual standard error: 614.8 on 52 degrees of freedom
+    ## Multiple R-squared:  0.8855, Adjusted R-squared:  0.8349 
+    ## F-statistic: 17.49 on 23 and 52 DF,  p-value: < 2.2e-16
 
 ``` r
 AIC(mlr9)
 ```
 
-    ## [1] 1188.013
+    ## [1] 1212.878
 
 Similar AIC for most days of week, so keep mlr9 as a candidate model to
 compare using cross validation.
@@ -829,62 +990,56 @@ summary(mlr10)
     ## 
     ## Call:
     ## lm(formula = registered ~ season + yr + mnth + weathersit + atemp + 
-    ##     hum + windspeed + I(atemp^2) + I(windspeed^2), data = dayTrain)
+    ##     hum + windspeed + holiday + I(atemp^2) + I(windspeed^2), 
+    ##     data = dayTrain)
     ## 
     ## Residuals:
     ##      Min       1Q   Median       3Q      Max 
-    ## -1172.10  -239.04    26.84   243.77  1141.57 
+    ## -1562.15  -273.65   -42.55   367.68  1190.22 
     ## 
     ## Coefficients:
-    ##                           Estimate Std. Error t value Pr(>|t|)    
-    ## (Intercept)                 -579.0      803.8  -0.720  0.47447    
-    ## seasonspring                1029.3      417.6   2.465  0.01699 *  
-    ## seasonsummer                 849.8      429.2   1.980  0.05293 .  
-    ## seasonfall                  1850.0      311.1   5.946 2.21e-07 ***
-    ## yr2012                      1541.8      118.6  12.997  < 2e-16 ***
-    ## mnth2                        331.2      410.6   0.807  0.42349    
-    ## mnth3                        147.3      385.6   0.382  0.70405    
-    ## mnth4                       -551.7      575.3  -0.959  0.34190    
-    ## mnth5                       -301.9      623.0  -0.485  0.62995    
-    ## mnth6                       -297.4      649.4  -0.458  0.64892    
-    ## mnth7                       -396.1      688.8  -0.575  0.56769    
-    ## mnth8                       -361.9      637.5  -0.568  0.57268    
-    ## mnth9                        260.1      566.6   0.459  0.64808    
-    ## mnth10                      -527.7      544.6  -0.969  0.33692    
-    ## mnth11                     -1072.7      480.9  -2.231  0.02997 *  
-    ## mnth12                      -410.4      364.9  -1.125  0.26569    
-    ## weathersitclear              158.7      183.9   0.863  0.39203    
-    ## weathersitlightRainOrSnow   -656.9      457.3  -1.437  0.15669    
-    ## atemp                       9260.5     3448.5   2.685  0.00965 ** 
-    ## hum                        -1433.1      629.9  -2.275  0.02696 *  
-    ## windspeed                   5749.3     3004.7   1.913  0.06110 .  
-    ## I(atemp^2)                 -6219.0     4230.7  -1.470  0.14748    
-    ## I(windspeed^2)            -17511.9     6119.7  -2.862  0.00602 ** 
+    ##                            Estimate Std. Error t value Pr(>|t|)    
+    ## (Intercept)                  126.90    1111.62   0.114  0.90955    
+    ## seasonspring                1793.59     647.16   2.771  0.00772 ** 
+    ## seasonsummer                2103.70     635.33   3.311  0.00169 ** 
+    ## seasonfall                  2503.13     533.16   4.695 1.98e-05 ***
+    ## yr2012                      1497.79     157.43   9.514 5.64e-13 ***
+    ## mnth2                         -9.64     400.83  -0.024  0.98090    
+    ## mnth3                         73.27     456.53   0.160  0.87311    
+    ## mnth4                      -1546.26     757.90  -2.040  0.04643 *  
+    ## mnth5                      -1766.20     778.60  -2.268  0.02748 *  
+    ## mnth6                       -994.75     784.94  -1.267  0.21069    
+    ## mnth7                      -1435.77     829.50  -1.731  0.08940 .  
+    ## mnth8                      -1395.82     802.45  -1.739  0.08787 .  
+    ## mnth9                       -856.46     683.85  -1.252  0.21602    
+    ## mnth10                     -1436.66     596.69  -2.408  0.01964 *  
+    ## mnth11                      -854.54     595.84  -1.434  0.15751    
+    ## mnth12                     -1120.84     472.99  -2.370  0.02155 *  
+    ## weathersitclear              136.34     203.94   0.669  0.50676    
+    ## weathersitlightRainOrSnow  -2322.03     506.62  -4.583 2.90e-05 ***
+    ## atemp                      11616.48    4938.04   2.352  0.02247 *  
+    ## hum                        -2320.98     910.26  -2.550  0.01377 *  
+    ## windspeed                   7029.36    4460.15   1.576  0.12108    
+    ## holiday1                    -600.70     239.32  -2.510  0.01522 *  
+    ## I(atemp^2)                 -8401.32    5326.73  -1.577  0.12081    
+    ## I(windspeed^2)            -24290.00   10536.85  -2.305  0.02518 *  
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
     ## 
-    ## Residual standard error: 495.6 on 53 degrees of freedom
-    ## Multiple R-squared:  0.9109, Adjusted R-squared:  0.8739 
-    ## F-statistic: 24.63 on 22 and 53 DF,  p-value: < 2.2e-16
+    ## Residual standard error: 588.6 on 52 degrees of freedom
+    ## Multiple R-squared:  0.8951, Adjusted R-squared:  0.8487 
+    ## F-statistic: 19.29 on 23 and 52 DF,  p-value: < 2.2e-16
 
 ``` r
 AIC(mlr10)
 ```
 
-    ## [1] 1179.561
+    ## [1] 1206.245
 
 Similar AIC for most days of week, so keep mlr10 as a candidate model to
 compare using cross validation.
 
 Try including all 3 quadratic terms
-
-``` r
-dayTrain$holiday
-```
-
-    ##  [1] 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
-    ## [39] 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
-    ## Levels: 0 1
 
 ``` r
 mlr11 <- update(mlr8, . ~ . + I(hum^2) + I(windspeed^2))
@@ -894,51 +1049,52 @@ summary(mlr11)
     ## 
     ## Call:
     ## lm(formula = registered ~ season + yr + mnth + weathersit + atemp + 
-    ##     hum + windspeed + I(atemp^2) + I(hum^2) + I(windspeed^2), 
+    ##     hum + windspeed + holiday + I(atemp^2) + I(hum^2) + I(windspeed^2), 
     ##     data = dayTrain)
     ## 
     ## Residuals:
     ##     Min      1Q  Median      3Q     Max 
-    ## -1178.0  -231.7    28.2   228.3  1150.7 
+    ## -1556.3  -270.8   -34.3   349.7  1227.3 
     ## 
     ## Coefficients:
-    ##                           Estimate Std. Error t value Pr(>|t|)    
-    ## (Intercept)                 -361.9     1225.2  -0.295   0.7689    
-    ## seasonspring                1035.6      422.3   2.453   0.0176 *  
-    ## seasonsummer                 855.5      433.8   1.972   0.0539 .  
-    ## seasonfall                  1843.7      315.1   5.852 3.29e-07 ***
-    ## yr2012                      1547.3      121.9  12.695  < 2e-16 ***
-    ## mnth2                        310.1      423.8   0.732   0.4676    
-    ## mnth3                        138.1      391.0   0.353   0.7253    
-    ## mnth4                       -571.4      586.4  -0.974   0.3344    
-    ## mnth5                       -327.6      637.9  -0.514   0.6098    
-    ## mnth6                       -322.4      663.8  -0.486   0.6292    
-    ## mnth7                       -419.4      702.0  -0.597   0.5528    
-    ## mnth8                       -371.0      644.4  -0.576   0.5673    
-    ## mnth9                        248.4      573.9   0.433   0.6669    
-    ## mnth10                      -523.5      549.8  -0.952   0.3454    
-    ## mnth11                     -1061.7      487.5  -2.178   0.0340 *  
-    ## mnth12                      -401.7      370.0  -1.085   0.2827    
-    ## weathersitclear              169.5      191.1   0.887   0.3792    
-    ## weathersitlightRainOrSnow   -667.2      463.5  -1.440   0.1559    
-    ## atemp                       9360.5     3505.2   2.670   0.0101 *  
-    ## hum                        -2373.3     4027.0  -0.589   0.5582    
-    ## windspeed                   6135.1     3443.0   1.782   0.0806 .  
-    ## I(atemp^2)                 -6280.8     4276.8  -1.469   0.1480    
-    ## I(hum^2)                     739.9     3129.1   0.236   0.8140    
-    ## I(windspeed^2)            -18493.0     7439.5  -2.486   0.0162 *  
+    ##                             Estimate Std. Error t value Pr(>|t|)    
+    ## (Intercept)                 -848.790   2105.533  -0.403 0.688542    
+    ## seasonspring                1778.884    652.123   2.728 0.008722 ** 
+    ## seasonsummer                2086.873    640.395   3.259 0.001995 ** 
+    ## seasonfall                  2550.941    543.856   4.690 2.08e-05 ***
+    ## yr2012                      1513.062    160.940   9.401 1.01e-12 ***
+    ## mnth2                        -64.821    415.974  -0.156 0.876783    
+    ## mnth3                         -2.943    480.289  -0.006 0.995135    
+    ## mnth4                      -1565.775    763.894  -2.050 0.045550 *  
+    ## mnth5                      -1816.930    789.367  -2.302 0.025468 *  
+    ## mnth6                      -1050.789    796.891  -1.319 0.193190    
+    ## mnth7                      -1476.673    838.481  -1.761 0.084211 .  
+    ## mnth8                      -1444.273    812.751  -1.777 0.081529 .  
+    ## mnth9                       -926.974    700.465  -1.323 0.191615    
+    ## mnth10                     -1574.406    651.379  -2.417 0.019263 *  
+    ## mnth11                      -983.727    644.700  -1.526 0.133221    
+    ## mnth12                     -1177.652    487.406  -2.416 0.019304 *  
+    ## weathersitclear              140.944    205.498   0.686 0.495905    
+    ## weathersitlightRainOrSnow  -2201.386    555.701  -3.961 0.000232 ***
+    ## atemp                      12112.009   5053.487   2.397 0.020244 *  
+    ## hum                          725.935   5644.311   0.129 0.898169    
+    ## windspeed                   6907.974   4495.983   1.536 0.130603    
+    ## holiday1                    -624.171    244.738  -2.550 0.013807 *  
+    ## I(atemp^2)                 -8955.067   5457.667  -1.641 0.106988    
+    ## I(hum^2)                   -2387.880   4364.770  -0.547 0.586710    
+    ## I(windspeed^2)            -23765.494  10651.805  -2.231 0.030097 *  
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
     ## 
-    ## Residual standard error: 500.1 on 52 degrees of freedom
-    ## Multiple R-squared:  0.911,  Adjusted R-squared:  0.8716 
-    ## F-statistic: 23.14 on 23 and 52 DF,  p-value: < 2.2e-16
+    ## Residual standard error: 592.6 on 51 degrees of freedom
+    ## Multiple R-squared:  0.8957, Adjusted R-squared:  0.8466 
+    ## F-statistic: 18.25 on 24 and 51 DF,  p-value: < 2.2e-16
 
 ``` r
 AIC(mlr11)
 ```
 
-    ## [1] 1181.48
+    ## [1] 1207.8
 
 Similar AIC for most days of week, so keep mlr11 as a candidate model to
 compare using cross validation.
@@ -1001,12 +1157,12 @@ kable(comparison)
 |            |     mlrFit8 |     mlrFit9 |    mlrFit10 |    mlrFit11 |
 |:-----------|------------:|------------:|------------:|------------:|
 | intercept  |   1.0000000 |   1.0000000 |   1.0000000 |   1.0000000 |
-| RMSE       | 658.8992539 | 685.1717587 | 627.7581359 | 684.3004401 |
-| Rsquared   |   0.7975275 |   0.7846582 |   0.8173184 |   0.7925075 |
-| MAE        | 516.9324838 | 532.3416180 | 487.5367634 | 540.9811451 |
-| RMSESD     |  98.8737481 |  82.5313917 | 124.2029983 | 116.4721403 |
-| RsquaredSD |   0.0764101 |   0.0536655 |   0.0620118 |   0.0930346 |
-| MAESD      |  90.8054710 |  90.9884942 |  97.6073726 | 110.5795647 |
+| RMSE       | 967.7509391 | 992.0796232 | 909.0834247 | 974.5677765 |
+| Rsquared   |   0.6543021 |   0.6711969 |   0.6943449 |   0.6680313 |
+| MAE        | 679.3410058 | 666.6009513 | 638.1652157 | 684.1711530 |
+| RMSESD     | 277.0909062 | 213.3720900 | 198.7022294 | 244.8240444 |
+| RsquaredSD |   0.1684956 |   0.1008620 |   0.1156767 |   0.1315776 |
+| MAESD      | 128.9866589 |  91.5171889 |  86.3073220 | 148.9167606 |
 
 Save the model with the lowest RMSE as our second linear regression
 model.
@@ -1018,12 +1174,12 @@ mlrFinal2 <- candidates[[1]]
 mlrFinal2$call
 ```
 
-    ## train.formula(form = registered ~ season + yr + mnth + weathersit + 
-    ##     atemp + hum + windspeed + I(atemp^2), data = dayTrain, method = "lm", 
-    ##     preProcess = c("center", "scale"), trControl = trainControl(method = "repeatedcv", 
+    ## train.formula(form = registered ~ season + yr + mnth + holiday + 
+    ##     weathersit + atemp + hum + windspeed + I(atemp^2), data = dayTrain, 
+    ##     method = "lm", preProcess = c("center", "scale"), trControl = trainControl(method = "repeatedcv", 
     ##         number = 4, repeats = 3))
 
-The model with the lowest RMSE for Saturday is mlrFit10
+The model with the lowest RMSE for Monday is mlrFit10
 
 ### Random Forest Model
 
@@ -1048,21 +1204,83 @@ rfFit
     ## Summary of sample sizes: 57, 58, 56, 57, 57, 57, ... 
     ## Resampling results across tuning parameters:
     ## 
-    ##   mtry  RMSE      Rsquared   MAE     
-    ##    2    959.8635  0.7675730  783.2876
-    ##    7    681.6384  0.7935114  543.6402
-    ##   10    676.1309  0.7875707  538.1746
-    ##   11    676.1543  0.7856866  537.7880
-    ##   12    679.8853  0.7832378  536.9567
-    ##   13    679.7218  0.7803604  537.3444
-    ##   14    681.2633  0.7789662  538.5076
-    ##   15    680.2354  0.7794359  537.0779
-    ##   16    681.7500  0.7766418  536.4635
-    ##   20    687.4200  0.7713105  537.6429
-    ##   24    695.9541  0.7640608  539.5025
+    ##   mtry  RMSE       Rsquared   MAE     
+    ##    2    1099.2526  0.6221036  864.0146
+    ##    7     880.1548  0.6740248  622.4924
+    ##   10     876.5366  0.6707949  609.1736
+    ##   11     873.3618  0.6696950  603.6382
+    ##   12     878.0892  0.6668264  603.1467
+    ##   13     880.5348  0.6621370  606.6115
+    ##   14     880.5196  0.6619755  605.2640
+    ##   15     875.7190  0.6662638  602.5553
+    ##   16     880.9798  0.6602715  606.9192
+    ##   20     894.0914  0.6511083  613.9828
+    ##   24     901.2209  0.6448321  616.6264
     ## 
     ## RMSE was used to select the optimal model using the smallest value.
-    ## The final value used for the model was mtry = 10.
+    ## The final value used for the model was mtry = 11.
+
+### Boosted
+
+``` r
+n.trees <- seq(5, 100, 5)
+int.depth <- 1:10
+shrinkage <- seq(0.05, 0.2, 0.05)
+minobs <- seq(2, 12, 2)
+grid <- expand.grid(n.trees = n.trees, 
+                    interaction.depth = int.depth, 
+                    shrinkage = shrinkage, 
+                    n.minobsinnode = minobs)
+
+trControl <- trainControl(method='repeatedcv', number=4, repeats=10)
+set.seed(1)
+fit_boost <- train(registered ~ ., 
+                   data=dayTrain %>% 
+                        drop_na() %>%
+                        select(-instant,-dteday, -season, 
+                               -weekday, -atemp, -casual, -cnt),
+                   method='gbm',
+                   tuneGrid = grid,
+                   trControl=trControl, 
+                   verbose=FALSE)
+```
+
+# Comparison of models
+
+Discussion …
+
+``` r
+# declaration of "winner" needs to be automated
+mlrFinal1Pred <- predict(lm.fit1, newdata=dayTest)
+mlrFinal2Pred <- predict(mlrFinal2, newdata = dayTest)
+rfFitPred <- predict(rfFit, newdata = dayTest)
+boostPred <- predict(fit_boost, newdata=dayTest)
+postResample(mlrFinal1Pred, dayTest$registered)
+```
+
+    ##      RMSE  Rsquared       MAE 
+    ## 777.90576   0.73285 668.08870
+
+``` r
+postResample(mlrFinal2Pred, dayTest$registered)
+```
+
+    ##        RMSE    Rsquared         MAE 
+    ## 737.1913258   0.7569418 593.3913248
+
+``` r
+postResample(rfFitPred, dayTest$registered)
+```
+
+    ##        RMSE    Rsquared         MAE 
+    ## 669.1504546   0.8261894 482.5267613
+
+``` r
+postResample(boostPred, dayTest$registered)
+```
+
+    ##        RMSE    Rsquared         MAE 
+    ## 533.5113721   0.8831697 405.6234559
 
 I added an initial version of my MLR and random forest models, and wrote
 a separate R script (ST558RenderProject2.r) to automate the reports for
