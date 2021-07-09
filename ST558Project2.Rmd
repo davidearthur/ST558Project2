@@ -255,14 +255,20 @@ min = which.min(mean_cv_errors)
 best <- regsubsets(registered ~ ., 
                            data=data, nvmax=20)
 best
-lm.fit1$nbest
-lm.fit1 <- lm(registered ~ yr + mnth + weathersit + temp + hum +
+
+if(length(unique(dayTrain$workingday)) == 1){
+  lm.fit1 <- lm(registered ~ yr + mnth + weathersit + temp + hum +
+               windspeed, data=dayTrain)
+}else{
+  lm.fit1 <- lm(registered ~ yr + mnth + weathersit + temp + hum +
                windspeed +workingday, data=dayTrain)
+}
+lm.fit1$nbest
 coef(lm.fit1)
 ```
 Using best subsets, the following model was obtained:
-`r coef(best, min)`
-`r coef(lm.fit1)`
+# coef(best, min)
+`r paste0(deparse1(lm.fit1$call[[2]]))`
 
 ### Second linear regression model
 In this approach, we start with a full linear regression model that includes all of the predictor variables.  We will then reduce collinearity (correlation among predictor variables) by removing redundant predictors until we reach an optimal (lowest) AIC.  We will calculate the condition number ($\kappa$) for each of the candidate models, which is a measure of collinearity.  Roughly, $\kappa < 30$ is considered desirable.  Finally, we will choose among several variations of the optimal model (including various higher order terms) using cross validation (described below).

@@ -4,6 +4,7 @@ David Arthur
 6/28/2021
 
 -   [Introduction](#introduction)
+-   [Packages](#packages)
 -   [Data](#data)
 -   [Summarizations](#summarizations)
 -   [Modeling](#modeling)
@@ -11,11 +12,54 @@ David Arthur
     -   [Second linear regression
         model](#second-linear-regression-model)
     -   [Random Forest Model](#random-forest-model)
+    -   [Boosted](#boosted)
 -   [Comparison of models](#comparison-of-models)
 
 # Introduction
 
-…
+The data set this program analyzes can be found
+[here](https://archive.ics.uci.edu/ml/datasets/Bike+Sharing+Dataset).
+The data describes its volume of riders by a few dimensions:
+
+-   season
+-   day of the week
+-   year
+-   month
+-   holiday (y/n flag)
+-   working day (y/n flag)
+-   weather (good, fair, poor, bad)
+-   temperature
+-   humidity
+-   wind
+
+It is further broken down into three response variables:
+
+-   Casual: non-registered riders who use the service casually
+-   Registered: registered riders who use the service more regularly
+-   Total: casual and registered combined
+
+The split between casual and registered is important, because they
+behave completely differently, use the service on different days, times,
+holidays, etc. Often, their behavior is inverse of each other, though
+the registered rider group is largest portion of riders and would be the
+primary client of the business. Keeping in mind that the registered
+client represents the largest portion of the clientele, this program
+focuses on the registered metric and splits the behavior by each day of
+the week.
+
+# Packages
+
+The following packages are required to run this program:
+
+-   tidyverse
+-   caret
+-   corrplot
+-   GGally
+-   knitr
+-   faraway
+-   leaps
+-   gridExtra
+-   leaps
 
 # Data
 
@@ -150,82 +194,102 @@ Average \# of riders by weather category
 Exploratory data analysis and summary (James)
 
 ``` r
-ggpairs(dayTrain %>% select(-instant,-dteday, -season, -yr, -cnt, -weekday), 
-        ggplot2::aes(colour=workingday))
-```
+scatter_james <- ggplot(data=dayTrain, aes(x=temp, y=registered)) +
+                 geom_point(aes(color=weathersit))
+hist_james <- ggplot(data=dayTrain, aes(x=weathersit)) +
+              geom_histogram(stat='count', aes(fill=workingday)) +
+              ggtitle('Frequency of Weather') +
+              xlab('Weather Type') + ylab('Count')
 
-![](Sunday_files/figure-gfm/carr_explore-1.png)<!-- --> Notes from
-looking at ggpairs plots: Working days are the highest usage for
-registered riders, but non-working days are the highest usage for casual
-riders. Registered riders are the primary volume, so we definitely care
-most about them but worth keeping in mind. There are two types of
-non-working days: weekends and holidays, and there is a difference in
-volume for each of those rider types depending on whether it is a
-holiday or a weekend.
-
-Air temperature and temperature are nearly 100% correlated. We should
-probably figure out which one of them we want to use. Speaking of
-correlated, can we drop the date and only use months? Unfortunately, it
-looks like we need to keep the year field as well, since year 2 had
-better performance than year 1. Do we want to keep season and month? I
-lean towards keeping year and month, but dropping season and date. Let
-me know what you think.
-
-Looking at the scatter of casual vs registered, broken out by working
-day, it’s crazy how separate the linear relationships look:
-
-``` r
-g <- ggplot(data=dayTrain, aes(x=registered, y=casual))
-g + geom_point(aes(color=workingday))
-```
-
-![](Sunday_files/figure-gfm/unnamed-chunk-7-1.png)<!-- --> On working
-days, registered bikes are the main rider group. On non-working days, it
-switches to casual. Looking at day of the week, we may be able to
-exclude it since it will be covered by the working day flag and holiday
-flag, but I guess we can check the models to see if it provides anything
-extra.
-
-``` r
-g <- ggplot(data=dayTrain %>% 
-                 select(weekday, casual, registered) %>%
+bar_james <- ggplot(data=dayTrain %>% 
+                 select(season, casual, registered) %>%
                  pivot_longer(cols=c(casual, registered),
                               names_to = 'metrics',
                               values_to = 'riders') %>%
-                 group_by(weekday, metrics) %>%
+                 group_by(season, metrics) %>%
                  summarise(avg_riders = mean(riders)), 
-            aes(x=weekday, y=avg_riders, fill=metrics))
+            aes(x=season, y=avg_riders, fill=metrics)) +     
+            geom_bar(stat='identity', position='dodge') +
+            ggtitle('Average Number of Riders') +
+              xlab('Season') + ylab('Average # of Riders')
+  
+box_james <- ggplot(data=dayTrain, aes(x=mnth, y=temp)) +
+             geom_boxplot(aes(color=season))
 ```
 
-    ## `summarise()` has grouped output by 'weekday'. You can override using the `.groups` argument.
+Looking at the bar graph below, in all seasons the registered user base
+far out-performs the casual base. This further confirms our plan of
+analyzing the registered group as the priority.
+
+![](Sunday_files/figure-gfm/unnamed-chunk-7-1.png)<!-- -->
+
+Since we don’t have a domain expert, we need to try to figure out what
+variables are important and which we could exclude. We already know that
+the two temperature variables have near perfect correlation, and clearly
+date is redundant with mnth and yr. I would think season is as well
+covered by mnth.
+
+That leaves temperature, weather, and the working day flag as the most
+likely to be relevant parameters. Looking at the plots below, I think we
+can make a few obvious inferences:
+
+-   looking at the scatter plot on the left, we can see that as the
+    temperature goes up, the number of riders also goes up - at least up
+    to a point. And even in the highest temperatures, ridership is way
+    up over lowest temperatures.
+-   the middle figure displays that temperature is highest in spring,
+    summer, and early fall
+-   looking at the figure on the right, there are very few days of
+    extremely poor weather. Most days are clear, which are the best days
+    for ridership.
+
+![](Sunday_files/figure-gfm/unnamed-chunk-8-1.png)<!-- -->
 
 ``` r
-g + geom_bar(stat='identity', position='dodge')
+summ_james <- dayTrain %>% rename(total = cnt) %>%
+              pivot_longer(cols=c(casual, registered, total),
+                           names_to = 'metrics',
+                           values_to = 'riders') %>%
+              group_by(metrics) %>%
+              summarise(min = min(riders),
+                        lower25 = quantile(riders, 0.25),
+                        median = median(riders),
+                        mean = mean(riders),
+                        upper75 = quantile(riders, 0.75),
+                        max = max(riders))  %>%
+              pivot_longer(cols=c(min, lower25, median,
+                                  mean, upper75, max),
+                           names_to = 'Summary',
+                           values_to = 'stats') %>%
+              pivot_wider(names_from = metrics, values_from = stats)
+
+kable(summ_james, digits=0)
 ```
 
-![](Sunday_files/figure-gfm/unnamed-chunk-8-1.png)<!-- --> Looking at
-this graph, weekday definitely seems relatively stable across the days
-(working days for registered and non-working days for casual are the
-jumps), but there may be enough variation to include it.
+| Summary | casual | registered | total |
+|:--------|-------:|-----------:|------:|
+| min     |     54 |        491 |   605 |
+| lower25 |    633 |       2242 |  2940 |
+| median  |   1408 |       2926 |  4396 |
+| mean    |   1333 |       2939 |  4272 |
+| upper75 |   2093 |       3750 |  5356 |
+| max     |   2704 |       5657 |  8227 |
 
-\#\#I like this graph. I thought about doing one like it, but wasn’t
-sure how to code it. pivot\_longer hadn’t occurred to me.
+``` r
+pct_diff <- round((summ_james$registered[3] / summ_james$casual[3] - 1) 
+                  * 100, 0)
+pct_str <- paste0(pct_diff, '%')
 
-\#\#About which variables to include, I agree with your comments. My
-understanding is that each of us comes up with our own models (I do a
-linear regression and a random forest, you do a linear regression and a
-boosted tree), so you and I don’t need to include the same predictors.
-We do need to agree ahead of time on which response we’re going to model
-(casual, registered, or cnt), so that the results of the 4 models can be
-compared to each other. I’m fine with any of the 3. Do you have a
-preference?
+inc_dec <- ''
+if (pct_diff >= 0) {
+  inc_dec <- 'increased'
+} else {
+  inc_dec <- 'decreased'
+}
+```
 
-Yeah, no preference here either. I guess we could just say registered
-since it’s the highest volume customer, and if we were doing this
-analysis for that company then registered users would be the most
-important group.
-
-\#\#Sounds good, we’ll go with registered.
+On the day of the week, Sunday, ridership by registered users is
+increased by 108%.
 
 # Modeling
 
@@ -244,7 +308,7 @@ held constant. A linear regression model can be expressed as
 where *Y*<sub>*i*</sub> is the response, *i* represents the observation
 number, *X*<sub>*i**j*</sub> are the predictor variables, and
 *E*<sub>*i*</sub> is the normally distributed random error. The
-*β*<sub>*j*</sub> coefficents must be linear, but the predictor
+*β*<sub>*j*</sub> coefficients must be linear, but the predictor
 variables can be higher order terms (e.g. *x*<sup>2</sup>) or
 interaction terms (e.g. *x*<sub>1</sub>*x*<sub>2</sub>). Creating a
 model to estimate the response using observed data, we have  
@@ -266,11 +330,17 @@ For our second linear regression model, we ….
 
 ### First linear regression model
 
+I am starting with a best subsets approach, meaning we will look at all
+of the predictors and use cross-validation to choose the one that has
+the best prediction capability. Since the training set is only around 80
+rows, I opted for four-fold cross validation to leave some data in each
+fold.
+
 ``` r
 library(leaps)
 
 data <- dayTrain %>% 
-               filter(weekday == params$dayOfWeek) %>% drop_na() %>%
+               drop_na() %>%
                select(-instant,-dteday, -season, 
                     -weekday, -atemp, -casual, -cnt)
 
@@ -301,13 +371,10 @@ for (j in 1:k) {
     pred <- predict(best, data[folds==j,], id=i)
     
     
-    cv_errors[j, i] <- mean((temp_data$registered[folds==j]-pred)^2)
+    cv_errors[j, i] <- mean((data$registered[folds==j]-pred)^2)
   }
 }
 ```
-
-    ## Warning in leaps.setup(x, y, wt = wt, nbest = nbest, nvmax = nvmax, force.in = force.in, : 2 linear
-    ## dependencies found
 
     ## Reordering variables and trying again:
 
@@ -323,19 +390,74 @@ min = which.min(mean_cv_errors)
 #the model w/ 14 variables was best when using 4 fold cv.
 #i did 4 fold because there are only about 80 rows of data per weekday
 
-best_full <- regsubsets(registered ~ ., 
-                     data=temp_data[folds!=j,], nvmax=20)
+best <- regsubsets(registered ~ ., 
+                           data=data, nvmax=20)
 ```
 
-    ## Error in is.data.frame(data): object 'temp_data' not found
+    ## Reordering variables and trying again:
 
 ``` r
-fit <- lm(registered ~ temp*hum,
-        data=dayTrain %>% 
-             filter(weekday == params$dayOfWeek) %>% drop_na() %>%
-             select(-instant,-dteday, -season, 
-                    -weekday, -atemp, -casual, -cnt))
+best
 ```
+
+    ## Subset selection object
+    ## Call: FUN(newX[, i], ...)
+    ## 19 Variables  (and intercept)
+    ##                           Forced in Forced out
+    ## yr2012                        FALSE      FALSE
+    ## mnth2                         FALSE      FALSE
+    ## mnth3                         FALSE      FALSE
+    ## mnth4                         FALSE      FALSE
+    ## mnth5                         FALSE      FALSE
+    ## mnth6                         FALSE      FALSE
+    ## mnth7                         FALSE      FALSE
+    ## mnth8                         FALSE      FALSE
+    ## mnth9                         FALSE      FALSE
+    ## mnth10                        FALSE      FALSE
+    ## mnth11                        FALSE      FALSE
+    ## mnth12                        FALSE      FALSE
+    ## weathersitclear               FALSE      FALSE
+    ## weathersitlightRainOrSnow     FALSE      FALSE
+    ## temp                          FALSE      FALSE
+    ## hum                           FALSE      FALSE
+    ## windspeed                     FALSE      FALSE
+    ## holiday1                      FALSE      FALSE
+    ## workingday1                   FALSE      FALSE
+    ## 1 subsets of each size up to 17
+    ## Selection Algorithm: exhaustive
+
+``` r
+if(length(unique(dayTrain$workingday)) == 1){
+  lm.fit1 <- lm(registered ~ yr + mnth + weathersit + temp + hum +
+               windspeed, data=dayTrain)
+}else{
+  lm.fit1 <- lm(registered ~ yr + mnth + weathersit + temp + hum +
+               windspeed +workingday, data=dayTrain)
+}
+lm.fit1$nbest
+```
+
+    ## NULL
+
+``` r
+coef(lm.fit1)
+```
+
+    ##               (Intercept)                    yr2012                     mnth2 
+    ##                1355.93330                1345.84776                 279.44726 
+    ##                     mnth3                     mnth4                     mnth5 
+    ##                 704.25047                 918.78352                1406.35416 
+    ##                     mnth6                     mnth7                     mnth8 
+    ##                1394.23817                 877.26197                 962.49186 
+    ##                     mnth9                    mnth10                    mnth11 
+    ##                1970.99020                1751.50961                1315.06436 
+    ##                    mnth12           weathersitclear weathersitlightRainOrSnow 
+    ##                 426.20209                 -69.09641               -1937.10587 
+    ##                      temp                       hum                 windspeed 
+    ##                2080.15237                -940.14011               -2368.84909
+
+Using best subsets, the following model was obtained: \# coef(best, min)
+registered \~ yr + mnth + weathersit + temp + hum + windspeed
 
 ### Second linear regression model
 
@@ -595,97 +717,24 @@ e <- eigen(t(x) %*% x)
 ```
 
 For `mnth`, `weathersit`, and `windspeed`, removal from the model
-results in only marginal change to AIC. If our main goal were inference
-and understanding the relationships between the variables, we might want
-to remove them from the model for the sake of simplicity,
-interpretability, and more narrow confidence intervals. Because our
-primary goal here is prediction, we will leave them in the model, and
-choose mlr2 as our base linear regression model.
+results in an increase or marginal decrease to AIC. If our main goal
+were inference and understanding the relationships between the
+variables, we might want to remove them from the model for the sake of
+simplicity, interpretability, and more narrow confidence intervals.
+Because our primary goal here is prediction, we will leave them in the
+model, and choose mlr2 as our base linear regression model.
 
 We will now do some diagnostic plots on our base model, and then
 consider adding higher order terms to the model.
 
 ``` r
-# compare to model chosen by leaps::step() function
-mlrStep <- step(mlrFull)
-```
-
-    ## Start:  AIC=958.51
-    ## registered ~ dteday + season + yr + mnth + weathersit + temp + 
-    ##     atemp + hum + windspeed
-    ## 
-    ##              Df Sum of Sq      RSS    AIC
-    ## - dteday      1      1680 12453903 956.52
-    ## - atemp       1      2592 12454815 956.52
-    ## - temp        1     14250 12466472 956.59
-    ## - yr          1     37866 12490088 956.74
-    ## <none>                    12452222 958.51
-    ## - windspeed   1    669055 13121277 960.48
-    ## - hum         1    669696 13121919 960.49
-    ## - weathersit  2   2659415 15111638 969.22
-    ## - mnth       11   6740395 19192617 969.39
-    ## - season      3   4572324 17024546 976.28
-    ## 
-    ## Step:  AIC=956.52
-    ## registered ~ season + yr + mnth + weathersit + temp + atemp + 
-    ##     hum + windspeed
-    ## 
-    ##              Df Sum of Sq      RSS     AIC
-    ## - atemp       1      1697 12455600  954.53
-    ## - temp        1     18658 12472561  954.63
-    ## <none>                    12453903  956.52
-    ## - windspeed   1    674282 13128185  958.52
-    ## - hum         1    688140 13142043  958.61
-    ## - weathersit  2   2668209 15122112  967.27
-    ## - mnth       11   7540010 19993913  970.50
-    ## - season      3   4585565 17039467  974.34
-    ## - yr          1  29736642 42190544 1047.25
-    ## 
-    ## Step:  AIC=954.53
-    ## registered ~ season + yr + mnth + weathersit + temp + hum + windspeed
-    ## 
-    ##              Df Sum of Sq      RSS     AIC
-    ## <none>                    12455600  954.53
-    ## - hum         1    686458 13142058  956.61
-    ## - temp        1    825424 13281024  957.40
-    ## - windspeed   1    825943 13281543  957.41
-    ## - weathersit  2   2675776 15131376  965.32
-    ## - mnth       11   7621597 20077196  968.81
-    ## - season      3   4833459 17289059  973.45
-    ## - yr          1  29758296 42213895 1045.29
-
-``` r
-names(mlrStep)
-```
-
-    ##  [1] "coefficients"  "residuals"     "effects"       "rank"          "fitted.values" "assign"       
-    ##  [7] "qr"            "df.residual"   "contrasts"     "xlevels"       "call"          "terms"        
-    ## [13] "model"         "anova"
-
-``` r
-mlrStep$call
-```
-
-    ## lm(formula = registered ~ season + yr + mnth + weathersit + temp + 
-    ##     hum + windspeed, data = dayTrain)
-
-``` r
-mlr2$call
-```
-
-    ## lm(formula = registered ~ season + yr + mnth + weathersit + atemp + 
-    ##     hum + windspeed, data = dayTrain)
-
-``` r
-AIC(mlr2, mlrStep)
-```
-
-    ##         df      AIC
-    ## mlr2    22 1172.310
-    ## mlrStep 22 1172.207
-
-``` r
-# does mlr3  agrees with step() choice?
+# # compare to model chosen by leaps::step() function
+# mlrStep <- step(mlrFull)
+# names(mlrStep)
+# mlrStep$call
+# mlr2$call
+# AIC(mlr2, mlrStep)
+# 
 ```
 
 We can check for constant variance of our error term, an assumption of
@@ -694,10 +743,10 @@ residuals (difference between fitted response and observed response). A
 “megaphone” shape can indicate non-constant variance.
 
 ``` r
-plot(mlr2$fitted, mlr3$residuals)
+plot(mlr2$fitted, mlr2$residuals)
 ```
 
-![](Sunday_files/figure-gfm/unnamed-chunk-16-1.png)<!-- -->
+![](Sunday_files/figure-gfm/unnamed-chunk-15-1.png)<!-- -->
 
 Another way to assess constant variance is with the Box-Cox method,
 which can suggest transformations of the response to address problems
@@ -709,7 +758,7 @@ problem with the existing model.
 MASS::boxcox(mlr2)
 ```
 
-![](Sunday_files/figure-gfm/unnamed-chunk-17-1.png)<!-- -->
+![](Sunday_files/figure-gfm/unnamed-chunk-16-1.png)<!-- -->
 
 We will also look at for signs of nonlinearity, which can indicate the
 need for quadratic terms for some of the predictors. The partial
@@ -720,7 +769,7 @@ the response, with the effect of the other predictors removed.
 termplot( mlr2, partial.resid = TRUE, terms = c("atemp", "windspeed", "hum"))
 ```
 
-![](Sunday_files/figure-gfm/unnamed-chunk-18-1.png)<!-- -->![](Sunday_files/figure-gfm/unnamed-chunk-18-2.png)<!-- -->![](Sunday_files/figure-gfm/unnamed-chunk-18-3.png)<!-- -->
+![](Sunday_files/figure-gfm/unnamed-chunk-17-1.png)<!-- -->![](Sunday_files/figure-gfm/unnamed-chunk-17-2.png)<!-- -->![](Sunday_files/figure-gfm/unnamed-chunk-17-3.png)<!-- -->
 
 For at least some days of the week there is a nonlinear pattern to the
 plots, particularly for `atemp`, so we will try adding quadratic terms
@@ -1025,16 +1074,16 @@ model.
 ``` r
 candidates <- list(mlrFit8 = mlrFit8, mlrFit9 = mlrFit9, mlrFit10 = mlrFit10, mlrFit11 = mlrFit11)
 indexLowestRMSE <- which.min(c(candidates[[1]][["results"]]["RMSE"], candidates[[2]][["results"]]["RMSE"], candidates[[3]][["results"]]["RMSE"], candidates[[4]][["results"]]["RMSE"]))
-mlrFinal2 <- candidates[[1]]
-mlrFinal2$call
+mlrFinal2 <- candidates[[indexLowestRMSE]]
+mlrFinal2$call[[2]]
 ```
 
-    ## train.formula(form = registered ~ season + yr + mnth + weathersit + 
-    ##     atemp + hum + windspeed + I(atemp^2), data = dayTrain, method = "lm", 
-    ##     preProcess = c("center", "scale"), trControl = trainControl(method = "repeatedcv", 
-    ##         number = 4, repeats = 3))
+    ## registered ~ season + yr + mnth + weathersit + atemp + hum + 
+    ##     windspeed + I(atemp^2)
 
-The model with the lowest RMSE for Sunday is mlrFit8
+The model with the lowest RMSE for Sunday is mlrFit8, with a formula of
+registered \~ season + yr + mnth + weathersit + atemp + hum + windspeed
++ I(atemp^2)
 
 ### Random Forest Model
 
@@ -1075,34 +1124,62 @@ rfFit
     ## RMSE was used to select the optimal model using the smallest value.
     ## The final value used for the model was mtry = 13.
 
+### Boosted
+
+``` r
+n.trees <- seq(5, 100, 5)
+int.depth <- 1:10
+shrinkage <- seq(0.05, 0.2, 0.05)
+minobs <- seq(2, 12, 2)
+grid <- expand.grid(n.trees = n.trees, 
+                    interaction.depth = int.depth, 
+                    shrinkage = shrinkage, 
+                    n.minobsinnode = minobs)
+
+trControl <- trainControl(method='repeatedcv', number=4, repeats=10)
+set.seed(1)
+fit_boost <- train(registered ~ ., 
+                   data=dayTrain %>% 
+                        drop_na() %>%
+                        select(-instant,-dteday, -season, 
+                               -weekday, -atemp, -casual, -cnt),
+                   method='gbm',
+                   tuneGrid = grid,
+                   trControl=trControl, 
+                   verbose=FALSE)
+```
+
 # Comparison of models
 
-Discussion …
+We will now compare the performance of the two linear regression models,
+the random forest model, and boosted tree model, by using each to
+predict the `registered` response based on the values of the predictor
+variables in the test data set that we partitioned at the beginning. We
+will choose the best model on the basis of lowest Mean Squared Error.
 
 ``` r
-# declaration of "winner" needs to be automated
-mlrFinal2Pred <- predict(mlrFinal2, newdata = dayTest)
-rfFitPred <- predict(rfFit, newdata = dayTest)
-postResample(mlrFinal2Pred, dayTest$registered)
+final4 <- list(first_linear_regression = lm.fit1, second_linear_regression = mlrFinal2, random_forest = rfFit, boosted_tree = fit_boost)
+rmse <- numeric()
+results <- list()
+predFinal4 <- predict(final4, newdata = dayTest)
+for(i in 1:length(final4)){
+  results[[i]] <- postResample(predFinal4[[i]], dayTest$registered)
+  rmse[i] <- postResample(predFinal4[[i]], dayTest$registered)["RMSE"]
+}
+resultsComparison <- data.frame(results)
+colnames(resultsComparison) <- names(final4)
+kable(t(resultsComparison), digits = 3)
 ```
 
-    ##       RMSE   Rsquared        MAE 
-    ## 585.750117   0.762717 445.042753
+|                            |    RMSE | Rsquared |     MAE |
+|:---------------------------|--------:|---------:|--------:|
+| first\_linear\_regression  | 705.928 |    0.670 | 525.142 |
+| second\_linear\_regression | 585.750 |    0.763 | 445.043 |
+| random\_forest             | 568.756 |    0.741 | 393.496 |
+| boosted\_tree              | 589.307 |    0.744 | 439.649 |
 
 ``` r
-postResample(rfFitPred, dayTest$registered)
+winnerIndex <- which.min(rmse)
 ```
 
-    ##        RMSE    Rsquared         MAE 
-    ## 568.7563659   0.7412708 393.4955567
-
-I added an initial version of my MLR and random forest models, and wrote
-a separate R script (ST558RenderProject2.r) to automate the reports for
-each day of the week. There’s still plenty of clean-up to do with the
-output, but the automation generally seems to be working. Since the
-dataset now includes only one weekday at a time, some of our graphs,
-tables, etc. that included weekday don’t make as much sense. I still
-have some questions about whether we’re supposed to do any initial data
-exploration with the full training set, or if we only work with one day
-at a time. I might post a question on the discussion board or go to
-Wednesday office hours unless it’s clear to you.
+The best-performing model for Sunday is random\_forest
