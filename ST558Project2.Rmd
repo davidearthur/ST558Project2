@@ -7,7 +7,7 @@ output:
     toc: true
 always_allow_html: true
 params:
-  dayOfWeek: "Monday"
+  dayOfWeek: "Friday"
 ---
 
 ```{r setup, include=FALSE}
@@ -207,10 +207,10 @@ Linear regression estimates the effect of each predictor variable on the mean va
 $$Y_i = \beta_0 + \beta_1X_{i1} + \beta_2X_{i2} + ... + \beta_pX_{ip} + E_i$$
 
 where $Y_i$ is the response, $i$ represents the observation number, $X_{ij}$ are the predictor variables, and $E_i$ is the normally distributed random error. The $\beta_j$ coefficients must be linear, but the predictor variables can be higher order terms (e.g. $x^2$) or interaction terms (e.g. $x_1x_2$).  Creating a model to estimate the response using observed data, we have  
-$\hat{y_i} = \hat\beta_0 + \hat\beta_1x_{i1} + \hat\beta_2x_{i2} + ... + \hat\beta_px_{ip}$
+$$\hat{y_i} = \hat\beta_0 + \hat\beta_1x_{i1} + \hat\beta_2x_{i2} + ... + \hat\beta_px_{ip}$$
 
 The $\hat\beta_j$ coefficients (estimates for $\beta_j$) are calculated for each predictor variable to minimize the residual sum of squares, using the observed values of $x_{ij}$ and $y_i$  
-$min_{\beta_0, \beta_1, ..., \beta_p}\sum_{i=1}^{n}(y_i - \beta_0 - \beta_1x_{i1} - \beta_2x_{i2} - ... - \beta_px_{ip})^2$
+$$min_{\beta_0, \beta_1, ..., \beta_p}\sum_{i=1}^{n}(y_i - \beta_0 - \beta_1x_{i1} - \beta_2x_{i2} - ... - \beta_px_{ip})^2$$
 
 The linear regression model can be used for inference, to understand the relationships between the predictor variables and the response, as well as for prediction of a mean response given new values of the predictor variables.  There are varying approaches to choosing which predictor variables to include in a linear regression model.  For our first linear regression model, we ....  
 For our second linear regression model, we ....
@@ -366,18 +366,18 @@ For `mnth`, `weathersit`, and `windspeed`, removal from the model results in an 
 
 We will now do some diagnostic plots on our base model, and then consider adding higher order terms to the model.
 ```{r}
-# compare to model chosen by leaps::step() function
-mlrStep <- step(mlrFull)
-names(mlrStep)
-mlrStep$call
-mlr2$call
-AIC(mlr2, mlrStep)
-# does mlr3  agrees with step() choice?
+# # compare to model chosen by leaps::step() function
+# mlrStep <- step(mlrFull)
+# names(mlrStep)
+# mlrStep$call
+# mlr2$call
+# AIC(mlr2, mlrStep)
+# 
 ```
 
 We can check for constant variance of our error term, an assumption of our model, by looking at a plot of the model's fitted values vs the residuals (difference between fitted response and observed response).  A "megaphone" shape can indicate non-constant variance.
 ```{r}
-plot(mlr2$fitted, mlr3$residuals)
+plot(mlr2$fitted, mlr2$residuals)
 ```
 
 Another way to assess constant variance is with the Box-Cox method, which can suggest transformations of the response to address problems with non-constant variance.  If the maximum log-likelihood of $\lambda$ close to 1, as in this case, indicates that non-constant variance is not a problem with the existing model.
@@ -482,12 +482,11 @@ Save the model with the lowest RMSE as our second linear regression model.
 ```{r}
 candidates <- list(mlrFit8 = mlrFit8, mlrFit9 = mlrFit9, mlrFit10 = mlrFit10, mlrFit11 = mlrFit11)
 indexLowestRMSE <- which.min(c(candidates[[1]][["results"]]["RMSE"], candidates[[2]][["results"]]["RMSE"], candidates[[3]][["results"]]["RMSE"], candidates[[4]][["results"]]["RMSE"]))
-mlrFinal2 <- candidates[[1]]
-mlrFinal2$call
+mlrFinal2 <- candidates[[indexLowestRMSE]]
+mlrFinal2$call[[2]]
 ```
 
-The model with the lowest RMSE for `r params$dayOfWeek` is `r names(candidates)[indexLowestRMSE]`
-
+The model with the lowest RMSE for `r params$dayOfWeek` is `r names(candidates)[indexLowestRMSE]`, with a formula of `r paste0(deparse1(mlrFinal2$call[[2]]))`
 
 ### Random Forest Model
 Intro to Random Forest
@@ -523,24 +522,25 @@ fit_boost <- train(registered ~ .,
                    tuneGrid = grid,
                    trControl=trControl, 
                    verbose=FALSE)
-
-
 ```
 
 # Comparison of models
-Discussion
-...
-```{r}
-# declaration of "winner" needs to be automated
-mlrFinal1Pred <- predict(lm.fit1, newdata=dayTest)
-mlrFinal2Pred <- predict(mlrFinal2, newdata = dayTest)
-rfFitPred <- predict(rfFit, newdata = dayTest)
-boostPred <- predict(fit_boost, newdata=dayTest)
-postResample(mlrFinal1Pred, dayTest$registered)
-postResample(mlrFinal2Pred, dayTest$registered)
-postResample(rfFitPred, dayTest$registered)
-postResample(boostPred, dayTest$registered)
-
+We will now compare the performance of the two linear regression models, the random forest model, and boosted tree model, by using each to predict the `registered` response based on the values of the predictor variables in the test data set that we partitioned at the beginning.  We will choose the best model on the basis of lowest Mean Squared Error.
+```{r warning = FALSE}
+final4 <- list(first_linear_regression = lm.fit1, second_linear_regression = mlrFinal2, random_forest = rfFit, boosted_tree = fit_boost)
+rmse <- numeric()
+results <- list()
+predFinal4 <- predict(final4, newdata = dayTest)
+for(i in 1:length(final4)){
+  results[[i]] <- postResample(predFinal4[[i]], dayTest$registered)
+  rmse[i] <- postResample(predFinal4[[i]], dayTest$registered)["RMSE"]
+}
+resultsComparison <- data.frame(results)
+colnames(resultsComparison) <- names(final4)
+kable(t(resultsComparison), digits = 3)
+winnerIndex <- which.min(rmse)
 ```
 
-I added an initial version of my MLR and random forest models, and wrote a separate R script (ST558RenderProject2.r) to automate the reports for each day of the week.  There's still plenty of clean-up to do with the output, but the automation generally seems to be working.  Since the dataset now includes only one weekday at a time, some of our graphs, tables, etc. that included weekday don't make as much sense.  I still have some questions about whether we're supposed to do any initial data exploration with the full training set, or if we only work with one day at a time.  I might post a question on the discussion board or go to Wednesday office hours unless it's clear to you.
+The best-performing model for `r params$day` is `r names(final4)[winnerIndex]`
+`r if(str_detect(names(final4)[4], "linear")){paste0("with a formula of ", deparse1(final4[[2]][["call"]][[2]]), ".")}`
+
