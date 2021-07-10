@@ -95,7 +95,7 @@ variables.
 GGally::ggpairs(dayTrain %>% select(2:6, 8:9, atemp, windspeed, registered, casual))
 ```
 
-![](Monday_files/figure-gfm/unnamed-chunk-28-1.png)<!-- -->
+![](Monday_files/figure-gfm/unnamed-chunk-3-1.png)<!-- -->
 
 We will now look in more detail at relationships between time-related
 variables and the `registered` response variable. When we do our linear
@@ -110,7 +110,7 @@ g + geom_point(aes(x = dteday, y = registered)) +
   labs(title = "Registered riders by date", x = "date", y = "# of registered riders")
 ```
 
-![](Monday_files/figure-gfm/unnamed-chunk-29-1.png)<!-- -->
+![](Monday_files/figure-gfm/unnamed-chunk-4-1.png)<!-- -->
 
 ``` r
 meanByMonthYr <- dayTrain %>% group_by(mnth, yr) %>%
@@ -125,7 +125,7 @@ g2 + geom_bar(aes(y = meanReg, fill = yr), position = "dodge", stat = "identity"
   labs(title = "Mean daily registered riders by month, grouped by year", x = "month", y = "Mean daily registered riders", fill = "year")
 ```
 
-![](Monday_files/figure-gfm/unnamed-chunk-29-2.png)<!-- -->
+![](Monday_files/figure-gfm/unnamed-chunk-4-2.png)<!-- -->
 
 We will look next in more detail at the relationship between
 quantitative weather variables and the `registered` response variable.
@@ -143,21 +143,21 @@ g + geom_point(aes(x = atemp, y = registered)) + facet_wrap(~ yr) +
   labs(x = "adjusted temperature", y = "registered riders")
 ```
 
-![](Monday_files/figure-gfm/unnamed-chunk-30-1.png)<!-- -->
+![](Monday_files/figure-gfm/unnamed-chunk-5-1.png)<!-- -->
 
 ``` r
 g + geom_point(aes(x = hum, y = registered)) + facet_wrap(~ yr) + 
   labs(x = "humidity", y = "registered riders")
 ```
 
-![](Monday_files/figure-gfm/unnamed-chunk-30-2.png)<!-- -->
+![](Monday_files/figure-gfm/unnamed-chunk-5-2.png)<!-- -->
 
 ``` r
 g + geom_point(aes(x = windspeed, y = registered)) + facet_wrap(~ yr) + 
   labs(x = "wind speed", y = "registered riders")
 ```
 
-![](Monday_files/figure-gfm/unnamed-chunk-30-3.png)<!-- -->
+![](Monday_files/figure-gfm/unnamed-chunk-5-3.png)<!-- -->
 
 We now view a table displaying the mean number of `registered`,
 `casual`, and total riders at each level of the categorical `weathersit`
@@ -207,7 +207,7 @@ Looking at the bar graph below, in all seasons the registered user base
 far out-performs the casual base. This further confirms our plan of
 analyzing the registered group as the priority.
 
-![](Monday_files/figure-gfm/unnamed-chunk-32-1.png)<!-- -->
+![](Monday_files/figure-gfm/unnamed-chunk-7-1.png)<!-- -->
 
 Since we don’t have a domain expert, we need to try to figure out what
 variables are important and which we could exclude. We already know that
@@ -229,7 +229,7 @@ can make a few obvious inferences:
     extremely poor weather. Most days are clear, which are the best days
     for ridership.
 
-![](Monday_files/figure-gfm/unnamed-chunk-33-1.png)<!-- -->
+![](Monday_files/figure-gfm/unnamed-chunk-8-1.png)<!-- -->
 
 ``` r
 summ_james <- dayTrain %>% rename(total = cnt) %>%
@@ -507,7 +507,7 @@ corrplot(dayNFCor, type = "upper", tl.pos = "lt")
 corrplot(dayNFCor, type = "lower", method = "number", add = TRUE, diag = FALSE, tl.pos = "n")
 ```
 
-![](Monday_files/figure-gfm/unnamed-chunk-34-1.png)<!-- -->
+![](Monday_files/figure-gfm/unnamed-chunk-9-1.png)<!-- -->
 
 First, we remove `workingday`, as it is fully determined by the day of
 the week and the `holiday` variable, so adds nothing to the model. We
@@ -630,7 +630,7 @@ g <- ggplot(mlr2)
 g + geom_point(aes(x = .fitted, y = .resid)) + labs (title = "Fitted (predicted) values vs residuals (difference between fitted and actual value)", x = "fitted (predicted) values", y = "residuals")
 ```
 
-![](Monday_files/figure-gfm/unnamed-chunk-39-1.png)<!-- -->
+![](Monday_files/figure-gfm/unnamed-chunk-14-1.png)<!-- -->
 
 Another way to assess constant variance is with the Box-Cox method,
 which can suggest transformations of the response to address problems
@@ -642,7 +642,7 @@ problem with the existing model.
 MASS::boxcox(mlr2)
 ```
 
-![](Monday_files/figure-gfm/unnamed-chunk-40-1.png)<!-- -->
+![](Monday_files/figure-gfm/unnamed-chunk-15-1.png)<!-- -->
 
 We will also look at for signs of nonlinearity, which can indicate the
 need for quadratic terms for some of the predictors. The partial
@@ -653,7 +653,7 @@ the response, with the effect of the other predictors removed.
 termplot(mlr2, partial.resid = TRUE, terms = c("atemp", "windspeed", "hum"))
 ```
 
-![](Monday_files/figure-gfm/unnamed-chunk-41-1.png)<!-- -->![](Monday_files/figure-gfm/unnamed-chunk-41-2.png)<!-- -->![](Monday_files/figure-gfm/unnamed-chunk-41-3.png)<!-- -->
+![](Monday_files/figure-gfm/unnamed-chunk-16-1.png)<!-- -->![](Monday_files/figure-gfm/unnamed-chunk-16-2.png)<!-- -->![](Monday_files/figure-gfm/unnamed-chunk-16-3.png)<!-- -->
 
 For at least some days of the week there is a nonlinear pattern to the
 plots, particularly for `atemp`, so we will try adding quadratic terms

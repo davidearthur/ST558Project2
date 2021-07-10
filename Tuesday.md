@@ -1131,4 +1131,6 @@ kable(t(resultsComparison), digits = 3)
 winnerIndex <- which.min(rmse)
 ```
 
-The best-performing model for Tuesday is second\_linear\_regression
+The best-performing model for Tuesday is second\_linear\_regression with
+a formula of registered \~ season + yr + mnth + holiday + weathersit +
+atemp + hum + windspeed + I(atemp^2).
