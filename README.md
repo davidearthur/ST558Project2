@@ -13,7 +13,6 @@ The following packages are required to run this program:
 *  faraway
 *  leaps
 *  gridExtra
-*  leaps
 
 ## Links to Each Day of the Week
 For each day of the week, we looked at summary statistics and created multiple models to predict the number of registered riders. You can find each day's analyses at the following links: 
