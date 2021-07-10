@@ -44,19 +44,6 @@ It is further broken down into three response variables:
 
 The split between casual and registered is important, because they behave completely differently, use the service on different days, times, holidays, etc. Often, their behavior is inverse of each other, though the registered rider group is largest portion of riders and would be the primary client of the business. Keeping in mind that the registered client represents the largest portion of the clientele, this program focuses on the registered metric and splits the behavior by each day of the week. 
 
-# Packages
-The following packages are required to run this program: 
-
-*  tidyverse
-*  caret 
-*  corrplot
-*  GGally
-*  knitr
-*  faraway
-*  leaps
-*  gridExtra
-*  leaps
-
 # Data
 We begin by reading in the data, changing the names of some factor levels, and filtering by day of week
 ```{r message = FALSE, warning = FALSE}
@@ -194,12 +181,12 @@ pct_str <- paste0(pct_diff, '%')
 
 inc_dec <- ''
 if (pct_diff >= 0) {
-  inc_dec <- 'increased'
+  inc_dec <- 'greater'
 } else {
-  inc_dec <- 'decreased'
+  inc_dec <- 'less'
 }
 ```
-On the day of the week, `r params$dayOfWeek`, ridership by registered users is `r inc_dec` by `r pct_str`.
+On the day of the week, `r params$dayOfWeek`, ridership by registered users is `r inc_dec` than casual users by `r pct_str`.
 
 # Modeling
 We will now fit two linear regression models, using differing approaches, with the goal of creating a model that does a good job of predicting the number of registered riders on any given day, based on the values of the predictor variables in the data set.  We will fit the models using the training data set that we partitioned above, and then test the accuracy of the models' predictions using the test data set.
@@ -494,7 +481,17 @@ rfFit <- train(registered ~ . - instant - casual - cnt, data = dayTrain,
 rfFit
 ```
 
-### Boosted 
+### Boosted Regression Tree
+A boosted regression tree is similar to other tree-based regression models, in that the regression is based on decision trees. Like other decision-tree models, random samples are taken to build iterations of the tree, but what makes boosted trees unique is that each iteration attempts to build and improve on the last version and predictions are updated as the trees are grown.
+
+The predictions are initialized to 0 and residuals are created. A tree is then fit to those residuals as a response. The predictions are then updated again, the response becomes the new residuals, and the process continues until a pre-determined number of **B** times has been reached.
+
+There are four parameters that can be chosen using cross-validation to create the best fit: 
+
+*  the shrinkage parameter: also known as the learning rate, this parameter determines how quickly the model learns. This parameter is between 0 and 1, and when tuning, 0.1 is usually a good place to start. 
+*  number of trees: this can lead to over-fitting if the number of trees is too large. 
+*  interaction depth: an interaction depth of 1 would be an additive model, while 2 would have two-way interactions. It is generally recommended to look at a interaction depth of something near 2 to 8. 
+*  min observations per node: default is 10, but this number can be dropped especially if data is sparse. 
 ```{r carr_boost, warning=FALSE, message=FALSE}
 n.trees <- seq(5, 100, 5)
 int.depth <- 1:10
@@ -510,8 +507,7 @@ set.seed(1)
 fit_boost <- train(registered ~ ., 
                    data=dayTrain %>% 
                         drop_na() %>%
-                        select(-instant,-dteday, -season, 
-                               -weekday, -atemp, -casual, -cnt),
+                        select(-instant, -casual, -cnt),
                    method='gbm',
                    tuneGrid = grid,
                    trControl=trControl, 
