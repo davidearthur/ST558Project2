@@ -1,13 +1,13 @@
 ---
 title: "ST 558 Project 2"
-author: "David Arthur"
+author: "By David Arthur and James Carr"
 date: "6/28/2021"
 output:
   github_document:
     toc: true
 always_allow_html: true
 params:
-  dayOfWeek: "Friday"
+  dayOfWeek: "Tuesday"
 ---
 
 ```{r setup, include=FALSE}
@@ -21,7 +21,7 @@ library(faraway)
 library(leaps)
 library(gridExtra)
 ```
-
+# `r params$dayOfWeek`
 # Introduction
 The data set this program analyzes can be found [here](https://archive.ics.uci.edu/ml/datasets/Bike+Sharing+Dataset). The data describes its volume of riders by a few dimensions: 
 
@@ -93,37 +93,38 @@ dayTest <- day[-trainIndex, ]
 We begin our exploratory analysis of the data with a graphical overview of the relationships between variables.  Obvious patterns in the plots, as well as high correlation values, indicate associations between variables.
 ```{r message = FALSE}
 GGally::ggpairs(dayTrain %>% select(2:6, 8:9, atemp, windspeed, registered, casual))
-# dayNFCor <- cor(as.matrix(dayNF %>% select(3:9, atemp, windspeed, casual, registered,cnt)))
-# corrplot(dayNFCor, type = "upper", tl.pos = "lt")
-# corrplot(dayNFCor, type = "lower", method = "number", add = TRUE, diag = FALSE, tl.pos = "n")
 ```
 
 We will now look in more detail at relationships between time-related variables and the `registered` response variable. When we do our linear regression modeling we will need to decide which (if any) of these predictors to use. For example, the date variable (`dteday`) and `season` may not be useful in the presence of `weekday`, `mnth`, and `yr` (or vice versa), as they provide largely redundant information.
 ```{r}
 g <- ggplot(data = dayTrain)
-g + geom_point(aes(x = dteday, y = registered))
+g + geom_point(aes(x = dteday, y = registered)) +
+  labs(title = "Registered riders by date", x = "date", y = "# of registered riders")
 
 meanByMonthYr <- dayTrain %>% group_by(mnth, yr) %>%
   summarize(meanReg = mean(registered))
 g2 <- ggplot(meanByMonthYr, aes(x = mnth))
-g2 + geom_bar(aes(y = meanReg, fill = yr), position = "dodge", stat = "identity")
+g2 + geom_bar(aes(y = meanReg, fill = yr), position = "dodge", stat = "identity") +
+  labs(title = "Mean daily registered riders by month, grouped by year", x = "month", y = "Mean daily registered riders", fill = "year")
 ```
 
-We will look next in more detail at the relationship between quantitative weather variables and the `registered` response variable.  The appearance of nonlinear relationships in the plots may indicate the need for quadratic terms in our linear regression models.  The adjusted temperature variable, `atemp`, seems particularly likely to require a quadratic term, as both low and high temperatures can discourage people from bicycling.  Similarly, with humidity and windspeed, low to moderate values may have no effect, but particularly high values could have an effect, so those variables may also require quadratic terms.
+We will look next in more detail at the relationship between quantitative weather variables and the `registered` response variable.  The appearance of nonlinear relationships in the scatter plots below may indicate the need for quadratic terms in our linear regression models.  The adjusted temperature variable, `atemp`, seems particularly likely to require a quadratic term, as both low and high temperatures can discourage people from bicycling.  Similarly, with humidity and windspeed, low to moderate values may have no effect, but particularly high values could have an effect, so those variables may also require quadratic terms.
 ```{r}
-g + geom_point(aes(x = atemp, y = registered)) + facet_wrap(~ yr)
-g + geom_point(aes(x = hum, y = registered)) + facet_wrap(~ yr)
-g + geom_point(aes(x = windspeed, y = registered)) + facet_wrap(~ yr)
+g + geom_point(aes(x = atemp, y = registered)) + facet_wrap(~ yr) + 
+  labs(x = "adjusted temperature", y = "registered riders")
+g + geom_point(aes(x = hum, y = registered)) + facet_wrap(~ yr) + 
+  labs(x = "humidity", y = "registered riders")
+g + geom_point(aes(x = windspeed, y = registered)) + facet_wrap(~ yr) + 
+  labs(x = "wind speed", y = "registered riders")
 ```
 
-We now view at a table displaying the mean number of `registered`, `casual`, and total riders at each level of the categorical `weathersit` variable.  It seems plausible that in rain or snow, the number of casual riders might decrease by a larger factor than would the number of registered riders.
+We now view a table displaying the mean number of `registered`, `casual`, and total riders at each level of the categorical `weathersit` variable.  It seems plausible that in rain or snow, the number of casual riders might decrease by a larger factor than would the number of registered riders.
 ```{r}
 meanByWeather <- dayTrain %>% group_by(weathersit) %>%
   summarize(meanCas = mean(casual), meanReg = mean(registered), meanTotal = mean(cnt))
 kable(meanByWeather, digits = 1, col.names = c("Weather", "Mean Casual Riders", "Mean Registered Riders", "Mean Total Riders"), caption = "Average # of riders by weather category")
 ```
 
-Exploratory data analysis and summary (James)
 ```{r carr_explore, message=FALSE, warning=FALSE}
 
 
@@ -159,7 +160,7 @@ Since we don't have a domain expert, we need to try to figure out what variables
 
 That leaves temperature, weather, and the working day flag as the most likely to be relevant parameters. Looking at the plots below, I think we can make a few obvious inferences: 
 
-*  in the scatter plot on the left, we can see that as the temperature goes up, the number of riders also goes up - at least up to a point. And even in the highest temperatures, ridership is way up over lowest temperatures.
+*  looking at the scatter plot on the left, we can see that as the temperature goes up, the number of riders also goes up - at least up to a point. And even in the highest temperatures, ridership is way up over lowest temperatures.
 *  the middle figure displays that temperature is highest in spring, summer, and early fall 
 *  looking at the figure on the right, there are very few days of extremely poor weather. Most days are clear, which are the best days for ridership. 
 
@@ -168,7 +169,7 @@ grid.arrange(scatter_james, box_james, hist_james, ncol=3)
 ```
 
 
-```{r carr_summarize}
+```{r summarize}
 summ_james <- dayTrain %>% rename(total = cnt) %>%
               pivot_longer(cols=c(casual, registered, total),
                            names_to = 'metrics',
@@ -209,6 +210,7 @@ $$Y_i = \beta_0 + \beta_1X_{i1} + \beta_2X_{i2} + ... + \beta_pX_{ip} + E_i$$
 where $Y_i$ is the response, $i$ represents the observation number, $X_{ij}$ are the predictor variables, and $E_i$ is the normally distributed random error. The $\beta_j$ coefficients must be linear, but the predictor variables can be higher order terms (e.g. $x^2$) or interaction terms (e.g. $x_1x_2$).  Creating a model to estimate the response using observed data, we have  
 $$\hat{y_i} = \hat\beta_0 + \hat\beta_1x_{i1} + \hat\beta_2x_{i2} + ... + \hat\beta_px_{ip}$$
 
+
 The $\hat\beta_j$ coefficients (estimates for $\beta_j$) are calculated for each predictor variable to minimize the residual sum of squares, using the observed values of $x_{ij}$ and $y_i$  
 $$min_{\beta_0, \beta_1, ..., \beta_p}\sum_{i=1}^{n}(y_i - \beta_0 - \beta_1x_{i1} - \beta_2x_{i2} - ... - \beta_px_{ip})^2$$
 
@@ -222,7 +224,7 @@ library(leaps)
 
 data <- dayTrain %>% 
                drop_na() %>%
-               select(-instant,-dteday, -season, 
+               select(-instant,-dteday, -season, -holiday,
                     -weekday, -atemp, -casual, -cnt)
 
 #this function converts new data to a model matrix
@@ -279,15 +281,19 @@ if(length(unique(dayTrain$workingday)) == 1){
 lm.fit1$nbest
 coef(lm.fit1)
 ```
+```{r}
+summary(best)
+predict(best, newdata = dayTest, id = which.min(mean_cv_errors))
+```
+
 Using best subsets, the following model was obtained:
-# coef(best, min)
 `r paste0(deparse1(lm.fit1$call[[2]]))`
 
 ### Second linear regression model
 In this approach, we start with a full linear regression model that includes all of the predictor variables.  We will then reduce collinearity (correlation among predictor variables) by removing redundant predictors until we reach an optimal (lowest) AIC.  We will calculate the condition number ($\kappa$) for each of the candidate models, which is a measure of collinearity.  Roughly, $\kappa < 30$ is considered desirable.  Finally, we will choose among several variations of the optimal model (including various higher order terms) using cross validation (described below).
 
 We begin with the full model, which includes all of the predictors.  `holiday` and `workingday` are excluded for days of the week that include only one level of `holiday` and `workingday`, respectively.
-```{r}
+```{r arthur_bestMLR}
 mlrFull <- lm(registered ~ dteday + season +  yr + mnth + weathersit + temp + 
                     atemp + hum + windspeed, dayTrain)
 if(length(unique(dayTrain$workingday)) != 1){
@@ -302,13 +308,13 @@ AIC(mlrFull)
 x <- model.matrix(mlrFull)[, -1]
 e <- eigen(t(x) %*% x)
 # e$val
-# condition number = sqrt(e$val[1]/min(e$val))
+# condition number
 ```
 
-We see that $\kappa$ = `r round(sqrt(e$val[1]/min(e$val)), 2)`, which is a sign of high collinearity, so we begin removing insignificant predictors one at a time, each time checking to confirm that AIC declines, or at least that it increases only marginally.
+We see that $\kappa$ = `r round(sqrt(e$val[1]/min(e$val)), 2)`, which is a sign of high collinearity, so we try removing some of the insignificant predictors, checking to confirm that AIC declines, or at least that it increases only marginally.
 
 To help in consideration of which variables to remove, we view the correlations.  For days of the week that don't include any holidays, `?` will appear in the `holiday` and `workingday` rows and columns.
-```{r arthur_bestMLR, message = FALSE, warning = FALSE}
+```{r message = FALSE, warning = FALSE}
 dayNFCor <- cor(as.matrix(dayNF %>%
                             mutate(weekday = fct_recode(weekday, Sunday = "0", Monday = "1", Tuesday = "2", Wednesday = "3", Thursday = "4", Friday = "5", Saturday = "6")) %>%
                             mutate(dteday = as.numeric(dteday)) %>%
@@ -336,12 +342,8 @@ We see that AIC has changed little, and that $\kappa$ = `r round(sqrt(e$val[1]/m
 Remove `mnth`
 ```{r}
 mlr3 <- update(mlr2, . ~ . - mnth)
-summary(mlr3)
+# summary(mlr3)
 AIC(mlr3)
-x <- model.matrix(mlr3)[, -1]
-e <- eigen(t(x) %*% x)
-# e$val
-# condition number = sqrt(e$val[1]/min(e$val))
 ```
 
 Remove `weathersit`
@@ -349,11 +351,6 @@ Remove `weathersit`
 mlr4 <- update(mlr2, . ~ . - weathersit)
 # summary(mlr4)
 AIC(mlr4)
-x <- model.matrix(mlr4)[, -1]
-e <- eigen(t(x) %*% x)
-# e$val
-# condition # =
-# sqrt(e$val[1]/min(e$val))
 ```
 
 Remove `windspeed`
@@ -361,29 +358,17 @@ Remove `windspeed`
 mlr5 <- update(mlr2, . ~ . - windspeed)
 # summary(mlr5)
 AIC(mlr5)
-x <- model.matrix(mlr5)[, -1]
-e <- eigen(t(x) %*% x)
-# e$val
-# condition # =
-# sqrt(e$val[1]/min(e$val))
 ```
 
-For `mnth`, `weathersit`, and `windspeed`, removal from the model results in an increase or  marginal decrease to AIC.  If our main goal were inference and understanding the relationships between the variables, we might want to remove them from the model for the sake of simplicity, interpretability, and more narrow confidence intervals.  Because our primary goal here is prediction, we will leave them in the model, and choose mlr2 as our base linear regression model.
+For `mnth`, `weathersit`, and `windspeed`, removal from the model results in an increase or marginal decrease in AIC.  If our main goal were inference and understanding the relationships between the variables, we might want to remove them from the model for the sake of simplicity, interpretability, and more narrow confidence intervals.  Because our primary goal here is prediction, we will leave them in the model, and choose mlr2 as our base linear regression model.
 
 We will now do some diagnostic plots on our base model, and then consider adding higher order terms to the model.
-```{r}
-# # compare to model chosen by leaps::step() function
-# mlrStep <- step(mlrFull)
-# names(mlrStep)
-# mlrStep$call
-# mlr2$call
-# AIC(mlr2, mlrStep)
-# 
-```
+
 
 We can check for constant variance of our error term, an assumption of our model, by looking at a plot of the model's fitted values vs the residuals (difference between fitted response and observed response).  A "megaphone" shape can indicate non-constant variance.
 ```{r}
-plot(mlr2$fitted, mlr2$residuals)
+g <- ggplot(mlr2)
+g + geom_point(aes(x = .fitted, y = .resid)) + labs (title = "Fitted (predicted) values vs residuals (difference between fitted and actual value)", x = "fitted (predicted) values", y = "residuals")
 ```
 
 Another way to assess constant variance is with the Box-Cox method, which can suggest transformations of the response to address problems with non-constant variance.  If the maximum log-likelihood of $\lambda$ close to 1, as in this case, indicates that non-constant variance is not a problem with the existing model.
@@ -391,23 +376,23 @@ Another way to assess constant variance is with the Box-Cox method, which can su
 MASS::boxcox(mlr2)
 ```
 
-We will also look at for signs of non-linearity, which can indicate the need for quadratic terms for some of the predictors.  The partial residual plots below plot the relationship between each predictor and the response, with the effect of the other predictors removed.
+We will also look at for signs of nonlinearity, which can indicate the need for quadratic terms for some of the predictors.  The partial residual plots below plot the relationship between each predictor and the response, with the effect of the other predictors removed.
 ```{r}
-termplot( mlr2, partial.resid = TRUE, terms = c("atemp", "windspeed", "hum"))
+termplot(mlr2, partial.resid = TRUE, terms = c("atemp", "windspeed", "hum"))
 ```
 
 For at least some days of the week there is a nonlinear pattern to the plots, particularly for `atemp`, so we will try adding quadratic terms for each of them to our base model.
 
-Try adding $atemp^2$
+Try adding $atemp^2$ to base model
 ```{r}
 mlr8 <- update(mlr2, . ~ . + I(atemp^2))
 summary(mlr8)
 AIC(mlr8)
 ```
 
-Reduced or similar AIC, so keep mlr8 as new base model.
+Reduced or similar AIC, so keep mlr8 as a candidate model to compare using cross validation.
 
-Try adding $hum^2$
+Try adding $atemp^2$ and $hum^2$ to base model
 ```{r}
 mlr9 <- update(mlr8, . ~ . + I(hum^2))
 summary(mlr9)
@@ -416,7 +401,7 @@ AIC(mlr9)
 
 Similar AIC for most days of week, so keep mlr9 as a candidate model to compare using cross validation.
 
-Try adding $windspeed^2$
+Try adding $atemp^2$ and $windspeed^2$ to base model
 ```{r}
 mlr10 <- update(mlr8, . ~ . + I(windspeed^2))
 summary(mlr10)
@@ -480,7 +465,6 @@ if(length(unique(dayTrain$holiday)) != 1){
 comparison <- data.frame(t(mlrFit8$results), t(mlrFit9$results), t(mlrFit10$results), t(mlrFit11$results))
 colnames(comparison) <- c("mlrFit8", "mlrFit9", "mlrFit10", "mlrFit11")
 kable(comparison)
-
 ```
 
 
@@ -495,7 +479,11 @@ mlrFinal2$call[[2]]
 The model with the lowest RMSE for `r params$dayOfWeek` is `r names(candidates)[indexLowestRMSE]`, with a formula of `r paste0(deparse1(mlrFinal2$call[[2]]))`
 
 ### Random Forest Model
-Intro to Random Forest
+The random forest model is an improvement on the bagged tree model, which is an improvement on the basic decision tree model.  Decision trees make predictions by dividing the predictor space into a number of regions, and determining which region the predictor values of the new observation fall into by applying a series of splits, each based on the value of a single predictor.  The response for the new observation is then predicted to be the mean of the responses of the observations in that region (for regression models; for classification models, the prediction is the predominant class observed in the region).  First a large tree is grown, with the goal of minimizing the residual sum of squares, resulting in a tree with many regions, each containing a small number of observations.  But this complex tree will generally be overfit, with low bias and high variance, so it gets pruned back to an optimal size, determined by cross validation, that will have higher bias but lower variance, and ideally perform better when predicting on new data.
+
+Bagged tree models improve on basic decision trees by using the bootstrap to take many samples from the training data set and producing an unpruned tree from each sample, then averaging the predictions of those trees to get the bagged tree model.  The averaging of hundreds of high-variance trees results in a much lower variance model.
+
+The random forest model is a further improvement on the bagged tree, which works by decorrelating the trees that are generated and averaged together.  In a bagged tree model, many of the trees can end up being similar, with the main splits dominated by the strongest predictor(s).  The correlation between these trees means that averaging them results in a smaller reduction in variance than desired.  To remedy this, random forest models consider only a random subset of predictors for each split, resulting in less correlation between trees, and lower variance in the final model.  The number of predictors considered for each split is a tuning parameter, whose value can be chosen using cross validation.
 ...
 ```{r random_forest, message = FALSE, warning = FALSE}
 rfFit <- train(registered ~ . - instant - casual - cnt, data = dayTrain,
@@ -531,7 +519,7 @@ fit_boost <- train(registered ~ .,
 ```
 
 # Comparison of models
-We will now compare the performance of the two linear regression models, the random forest model, and boosted tree model, by using each to predict the `registered` response based on the values of the predictor variables in the test data set that we partitioned at the beginning.  We will choose the best model on the basis of lowest Mean Squared Error.
+We will now compare the performance of the two linear regression models, the random forest model, and the boosted tree model, by using each to predict the `registered` response based on the values of the predictor variables in the test data set that we partitioned at the beginning.  We will choose the best model on the basis of lowest Root Mean Squared Error.
 ```{r warning = FALSE}
 final4 <- list(first_linear_regression = lm.fit1, second_linear_regression = mlrFinal2, random_forest = rfFit, boosted_tree = fit_boost)
 rmse <- numeric()
