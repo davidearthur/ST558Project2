@@ -1,10 +1,10 @@
 ST 558 Project 2
 ================
-David Arthur
+By David Arthur and James Carr
 6/28/2021
 
+-   [Thursday](#thursday)
 -   [Introduction](#introduction)
--   [Packages](#packages)
 -   [Data](#data)
 -   [Summarizations](#summarizations)
 -   [Modeling](#modeling)
@@ -12,8 +12,10 @@ David Arthur
     -   [Second linear regression
         model](#second-linear-regression-model)
     -   [Random Forest Model](#random-forest-model)
-    -   [Boosted](#boosted)
+    -   [Boosted Regression Tree](#boosted-regression-tree)
 -   [Comparison of models](#comparison-of-models)
+
+# Thursday
 
 # Introduction
 
@@ -46,20 +48,6 @@ primary client of the business. Keeping in mind that the registered
 client represents the largest portion of the clientele, this program
 focuses on the registered metric and splits the behavior by each day of
 the week.
-
-# Packages
-
-The following packages are required to run this program:
-
--   tidyverse
--   caret
--   corrplot
--   GGally
--   knitr
--   faraway
--   leaps
--   gridExtra
--   leaps
 
 # Data
 
@@ -109,12 +97,6 @@ GGally::ggpairs(dayTrain %>% select(2:6, 8:9, atemp, windspeed, registered, casu
 
 ![](Thursday_files/figure-gfm/unnamed-chunk-3-1.png)<!-- -->
 
-``` r
-# dayNFCor <- cor(as.matrix(dayNF %>% select(3:9, atemp, windspeed, casual, registered,cnt)))
-# corrplot(dayNFCor, type = "upper", tl.pos = "lt")
-# corrplot(dayNFCor, type = "lower", method = "number", add = TRUE, diag = FALSE, tl.pos = "n")
-```
-
 We will now look in more detail at relationships between time-related
 variables and the `registered` response variable. When we do our linear
 regression modeling we will need to decide which (if any) of these
@@ -124,7 +106,8 @@ predictors to use. For example, the date variable (`dteday`) and
 
 ``` r
 g <- ggplot(data = dayTrain)
-g + geom_point(aes(x = dteday, y = registered))
+g + geom_point(aes(x = dteday, y = registered)) +
+  labs(title = "Registered riders by date", x = "date", y = "# of registered riders")
 ```
 
 ![](Thursday_files/figure-gfm/unnamed-chunk-4-1.png)<!-- -->
@@ -138,40 +121,45 @@ meanByMonthYr <- dayTrain %>% group_by(mnth, yr) %>%
 
 ``` r
 g2 <- ggplot(meanByMonthYr, aes(x = mnth))
-g2 + geom_bar(aes(y = meanReg, fill = yr), position = "dodge", stat = "identity")
+g2 + geom_bar(aes(y = meanReg, fill = yr), position = "dodge", stat = "identity") +
+  labs(title = "Mean daily registered riders by month, grouped by year", x = "month", y = "Mean daily registered riders", fill = "year")
 ```
 
 ![](Thursday_files/figure-gfm/unnamed-chunk-4-2.png)<!-- -->
 
 We will look next in more detail at the relationship between
 quantitative weather variables and the `registered` response variable.
-The appearance of nonlinear relationships in the plots may indicate the
-need for quadratic terms in our linear regression models. The adjusted
-temperature variable, `atemp`, seems particularly likely to require a
-quadratic term, as both low and high temperatures can discourage people
-from bicycling. Similarly, with humidity and windspeed, low to moderate
-values may have no effect, but particularly high values could have an
-effect, so those variables may also require quadratic terms.
+The appearance of nonlinear relationships in the scatter plots below may
+indicate the need for quadratic terms in our linear regression models.
+The adjusted temperature variable, `atemp`, seems particularly likely to
+require a quadratic term, as both low and high temperatures can
+discourage people from bicycling. Similarly, with humidity and
+windspeed, low to moderate values may have no effect, but particularly
+high values could have an effect, so those variables may also require
+quadratic terms.
 
 ``` r
-g + geom_point(aes(x = atemp, y = registered)) + facet_wrap(~ yr)
+g + geom_point(aes(x = atemp, y = registered)) + facet_wrap(~ yr) + 
+  labs(x = "adjusted temperature", y = "registered riders")
 ```
 
 ![](Thursday_files/figure-gfm/unnamed-chunk-5-1.png)<!-- -->
 
 ``` r
-g + geom_point(aes(x = hum, y = registered)) + facet_wrap(~ yr)
+g + geom_point(aes(x = hum, y = registered)) + facet_wrap(~ yr) + 
+  labs(x = "humidity", y = "registered riders")
 ```
 
 ![](Thursday_files/figure-gfm/unnamed-chunk-5-2.png)<!-- -->
 
 ``` r
-g + geom_point(aes(x = windspeed, y = registered)) + facet_wrap(~ yr)
+g + geom_point(aes(x = windspeed, y = registered)) + facet_wrap(~ yr) + 
+  labs(x = "wind speed", y = "registered riders")
 ```
 
 ![](Thursday_files/figure-gfm/unnamed-chunk-5-3.png)<!-- -->
 
-We now view at a table displaying the mean number of `registered`,
+We now view a table displaying the mean number of `registered`,
 `casual`, and total riders at each level of the categorical `weathersit`
 variable. It seems plausible that in rain or snow, the number of casual
 riders might decrease by a larger factor than would the number of
@@ -190,8 +178,6 @@ kable(meanByWeather, digits = 1, col.names = c("Weather", "Mean Casual Riders", 
 | lightRainOrSnow |               99.5 |                 1133.0 |            1232.5 |
 
 Average \# of riders by weather category
-
-Exploratory data analysis and summary (James)
 
 ``` r
 scatter_james <- ggplot(data=dayTrain, aes(x=temp, y=registered)) +
@@ -282,14 +268,14 @@ pct_str <- paste0(pct_diff, '%')
 
 inc_dec <- ''
 if (pct_diff >= 0) {
-  inc_dec <- 'increased'
+  inc_dec <- 'greater'
 } else {
-  inc_dec <- 'decreased'
+  inc_dec <- 'less'
 }
 ```
 
 On the day of the week, Thursday, ridership by registered users is
-increased by 584%.
+greater than casual users by 584%.
 
 # Modeling
 
@@ -311,8 +297,8 @@ number, *X*<sub>*i**j*</sub> are the predictor variables, and
 *β*<sub>*j*</sub> coefficients must be linear, but the predictor
 variables can be higher order terms (e.g. *x*<sup>2</sup>) or
 interaction terms (e.g. *x*<sub>1</sub>*x*<sub>2</sub>). Creating a
-model to estimate the response using observed data, we have  
-$$\\hat{y\_i} = \\hat\\beta\_0 + \\hat\\beta\_1x\_{i1} + \\hat\\beta\_2x\_{i2} + ... + \\hat\\beta\_px\_{ip}$$
+model to estimate the response using observed data, we have
+$\\hat{y\_i} = \\hat\\beta\_0 + \\hat\\beta\_1x\_{i1} + \\hat\\beta\_2x\_{i2} + ... + \\hat\\beta\_px\_{ip}$
 
 The *β̂*<sub>*j*</sub> coefficients (estimates for *β*<sub>*j*</sub>) are
 calculated for each predictor variable to minimize the residual sum of
@@ -324,9 +310,25 @@ The linear regression model can be used for inference, to understand the
 relationships between the predictor variables and the response, as well
 as for prediction of a mean response given new values of the predictor
 variables. There are varying approaches to choosing which predictor
-variables to include in a linear regression model. For our first linear
-regression model, we ….  
-For our second linear regression model, we ….
+variables to include in a linear regression model. In both of our
+models, our goal is accurate prediction when applied to new data. To
+accomplish this we take two different approaches to choosing a subset of
+predictor variables, in both cases using a combination of
+criterion-based comparison and cross validation.
+
+Criterion-based selection generally involves balancing bias and variance
+by adding to the residual sum of squares some penalty that increases
+with the number of predictors. This compensates for the fact that
+including more predictors will always reduce the RSS for the training
+set, but beyond a certain point overfitting becomes a risk, responding
+too much to the noise in the training set, and reducing the accuracy of
+the model when applied to new data.
+
+Cross validation subdivides the training set into *k* folds, then fits a
+model using *k* − 1 of those folds, and tests its accuracy predicting on
+the *k*<sup>*t**h*</sup> fold. This is repeated *k* − 1 more times, so
+that each fold gets a turn as the test set. The *k* results (residual
+sum of squares, etc.) are then averaged.
 
 ### First linear regression model
 
@@ -341,7 +343,7 @@ library(leaps)
 
 data <- dayTrain %>% 
                drop_na() %>%
-               select(-instant,-dteday, -season, 
+               select(-instant,-dteday, -season, -holiday,
                     -weekday, -atemp, -casual, -cnt)
 
 #this function converts new data to a model matrix
@@ -376,8 +378,6 @@ for (j in 1:k) {
 }
 ```
 
-    ## Reordering variables and trying again:
-
     ## Error in eval(x): object 'newX' not found
 
 ``` r
@@ -390,43 +390,6 @@ min = which.min(mean_cv_errors)
 #the model w/ 14 variables was best when using 4 fold cv.
 #i did 4 fold because there are only about 80 rows of data per weekday
 
-best <- regsubsets(registered ~ ., 
-                           data=data, nvmax=20)
-```
-
-    ## Reordering variables and trying again:
-
-``` r
-best
-```
-
-    ## Subset selection object
-    ## Call: FUN(newX[, i], ...)
-    ## 19 Variables  (and intercept)
-    ##                           Forced in Forced out
-    ## yr2012                        FALSE      FALSE
-    ## mnth2                         FALSE      FALSE
-    ## mnth3                         FALSE      FALSE
-    ## mnth4                         FALSE      FALSE
-    ## mnth5                         FALSE      FALSE
-    ## mnth6                         FALSE      FALSE
-    ## mnth7                         FALSE      FALSE
-    ## mnth8                         FALSE      FALSE
-    ## mnth9                         FALSE      FALSE
-    ## mnth10                        FALSE      FALSE
-    ## mnth11                        FALSE      FALSE
-    ## mnth12                        FALSE      FALSE
-    ## holiday1                      FALSE      FALSE
-    ## weathersitclear               FALSE      FALSE
-    ## weathersitlightRainOrSnow     FALSE      FALSE
-    ## temp                          FALSE      FALSE
-    ## hum                           FALSE      FALSE
-    ## windspeed                     FALSE      FALSE
-    ## workingday1                   FALSE      FALSE
-    ## 1 subsets of each size up to 18
-    ## Selection Algorithm: exhaustive
-
-``` r
 if(length(unique(dayTrain$workingday)) == 1){
   lm.fit1 <- lm(registered ~ yr + mnth + weathersit + temp + hum +
                windspeed, data=dayTrain)
@@ -434,45 +397,23 @@ if(length(unique(dayTrain$workingday)) == 1){
   lm.fit1 <- lm(registered ~ yr + mnth + weathersit + temp + hum +
                windspeed +workingday, data=dayTrain)
 }
-lm.fit1$nbest
 ```
 
-    ## NULL
-
-``` r
-coef(lm.fit1)
-```
-
-    ##               (Intercept)                    yr2012                     mnth2 
-    ##              -1893.013636               1886.309555                 59.662721 
-    ##                     mnth3                     mnth4                     mnth5 
-    ##                444.570815                473.878285                893.424378 
-    ##                     mnth6                     mnth7                     mnth8 
-    ##                385.068946                  9.942961                443.822994 
-    ##                     mnth9                    mnth10                    mnth11 
-    ##               1266.139209               1888.966956               1302.692427 
-    ##                    mnth12           weathersitclear weathersitlightRainOrSnow 
-    ##                750.222830                295.765840              -2365.816679 
-    ##                      temp                       hum                 windspeed 
-    ##               4605.530085              -1603.134954              -1665.039841 
-    ##               workingday1 
-    ##               3312.346569
-
-Using best subsets, the following model was obtained: \# coef(best, min)
-registered \~ yr + mnth + weathersit + temp + hum + windspeed +
-workingday
+Using best subsets, the following model was obtained: registered \~ yr +
+mnth + weathersit + temp + hum + windspeed + workingday
 
 ### Second linear regression model
 
 In this approach, we start with a full linear regression model that
 includes all of the predictor variables. We will then reduce
 collinearity (correlation among predictor variables) by removing
-redundant predictors until we reach an optimal (lowest) AIC. We will
-calculate the condition number (*κ*) for each of the candidate models,
-which is a measure of collinearity. Roughly, *κ* &lt; 30 is considered
-desirable. Finally, we will choose among several variations of the
-optimal model (including various higher order terms) using cross
-validation (described below).
+redundant predictors until we reach an optimal (lowest) AIC, which is
+one of the criteria for predictor subset selection described above. We
+will calculate the condition number (*κ*) for each of the candidate
+models, which is a measure of collinearity. Roughly, *κ* &lt; 30 is
+considered desirable. Finally, we will choose among several variations
+of the optimal model (including various higher order terms) using cross
+validation (described above).
 
 We begin with the full model, which includes all of the predictors.
 `holiday` and `workingday` are excluded for days of the week that
@@ -544,13 +485,13 @@ AIC(mlrFull)
 x <- model.matrix(mlrFull)[, -1]
 e <- eigen(t(x) %*% x)
 # e$val
-# condition number = sqrt(e$val[1]/min(e$val))
+# condition number
 ```
 
 We see that *κ* = 4.1783708^{7}, which is a sign of high collinearity,
-so we begin removing insignificant predictors one at a time, each time
-checking to confirm that AIC declines, or at least that it increases
-only marginally.
+so we try removing some of the insignificant predictors, checking to
+confirm that AIC declines, or at least that it increases only
+marginally.
 
 To help in consideration of which variables to remove, we view the
 correlations. For days of the week that don’t include any holidays, `?`
@@ -566,7 +507,7 @@ corrplot(dayNFCor, type = "upper", tl.pos = "lt")
 corrplot(dayNFCor, type = "lower", method = "number", add = TRUE, diag = FALSE, tl.pos = "n")
 ```
 
-![](Thursday_files/figure-gfm/arthur_bestMLR-1.png)<!-- -->
+![](Thursday_files/figure-gfm/unnamed-chunk-9-1.png)<!-- -->
 
 First, we remove `workingday`, as it is fully determined by the day of
 the week and the `holiday` variable, so adds nothing to the model. We
@@ -642,50 +583,11 @@ Remove `mnth`
 
 ``` r
 mlr3 <- update(mlr2, . ~ . - mnth)
-summary(mlr3)
-```
-
-    ## 
-    ## Call:
-    ## lm(formula = registered ~ season + yr + weathersit + atemp + 
-    ##     hum + windspeed + holiday, data = dayTrain)
-    ## 
-    ## Residuals:
-    ##      Min       1Q   Median       3Q      Max 
-    ## -1282.13  -204.62    44.06   264.43  1128.14 
-    ## 
-    ## Coefficients:
-    ##                           Estimate Std. Error t value Pr(>|t|)    
-    ## (Intercept)                  725.9      558.3   1.300 0.198155    
-    ## seasonspring                 758.5      224.1   3.385 0.001213 ** 
-    ## seasonsummer                 731.7      283.2   2.584 0.012027 *  
-    ## seasonfall                  1428.8      197.6   7.231 6.77e-10 ***
-    ## yr2012                      1974.4      127.8  15.446  < 2e-16 ***
-    ## weathersitclear              389.0      169.5   2.295 0.024977 *  
-    ## weathersitlightRainOrSnow  -1481.8      426.1  -3.478 0.000907 ***
-    ## atemp                       4479.4      670.7   6.679 6.38e-09 ***
-    ## hum                         -663.2      561.1  -1.182 0.241511    
-    ## windspeed                  -1200.7      958.2  -1.253 0.214670    
-    ## holiday1                   -3440.5      414.8  -8.293 8.79e-12 ***
-    ## ---
-    ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
-    ## 
-    ## Residual standard error: 534.8 on 65 degrees of freedom
-    ## Multiple R-squared:  0.9108, Adjusted R-squared:  0.8971 
-    ## F-statistic: 66.37 on 10 and 65 DF,  p-value: < 2.2e-16
-
-``` r
+# summary(mlr3)
 AIC(mlr3)
 ```
 
     ## [1] 1182.636
-
-``` r
-x <- model.matrix(mlr3)[, -1]
-e <- eigen(t(x) %*% x)
-# e$val
-# condition number = sqrt(e$val[1]/min(e$val))
-```
 
 Remove `weathersit`
 
@@ -697,14 +599,6 @@ AIC(mlr4)
 
     ## [1] 1213.045
 
-``` r
-x <- model.matrix(mlr4)[, -1]
-e <- eigen(t(x) %*% x)
-# e$val
-# condition # =
-# sqrt(e$val[1]/min(e$val))
-```
-
 Remove `windspeed`
 
 ``` r
@@ -715,16 +609,8 @@ AIC(mlr5)
 
     ## [1] 1177.125
 
-``` r
-x <- model.matrix(mlr5)[, -1]
-e <- eigen(t(x) %*% x)
-# e$val
-# condition # =
-# sqrt(e$val[1]/min(e$val))
-```
-
 For `mnth`, `weathersit`, and `windspeed`, removal from the model
-results in an increase or marginal decrease to AIC. If our main goal
+results in an increase or marginal decrease in AIC. If our main goal
 were inference and understanding the relationships between the
 variables, we might want to remove them from the model for the sake of
 simplicity, interpretability, and more narrow confidence intervals.
@@ -734,26 +620,17 @@ model, and choose mlr2 as our base linear regression model.
 We will now do some diagnostic plots on our base model, and then
 consider adding higher order terms to the model.
 
-``` r
-# # compare to model chosen by leaps::step() function
-# mlrStep <- step(mlrFull)
-# names(mlrStep)
-# mlrStep$call
-# mlr2$call
-# AIC(mlr2, mlrStep)
-# 
-```
-
 We can check for constant variance of our error term, an assumption of
 our model, by looking at a plot of the model’s fitted values vs the
 residuals (difference between fitted response and observed response). A
 “megaphone” shape can indicate non-constant variance.
 
 ``` r
-plot(mlr2$fitted, mlr2$residuals)
+g <- ggplot(mlr2)
+g + geom_point(aes(x = .fitted, y = .resid)) + labs (title = "Fitted (predicted) values vs residuals (difference between fitted and actual value)", x = "fitted (predicted) values", y = "residuals")
 ```
 
-![](Thursday_files/figure-gfm/unnamed-chunk-15-1.png)<!-- -->
+![](Thursday_files/figure-gfm/unnamed-chunk-14-1.png)<!-- -->
 
 Another way to assess constant variance is with the Box-Cox method,
 which can suggest transformations of the response to address problems
@@ -765,7 +642,7 @@ problem with the existing model.
 MASS::boxcox(mlr2)
 ```
 
-    ## Error in `contrasts<-`(`*tmp*`, value = contr.funs[1 + isOF[nn]]): contrasts can be applied only to factors with 2 or more levels
+![](Thursday_files/figure-gfm/unnamed-chunk-15-1.png)<!-- -->
 
 We will also look at for signs of nonlinearity, which can indicate the
 need for quadratic terms for some of the predictors. The partial
@@ -773,16 +650,16 @@ residual plots below plot the relationship between each predictor and
 the response, with the effect of the other predictors removed.
 
 ``` r
-termplot( mlr2, partial.resid = TRUE, terms = c("atemp", "windspeed", "hum"))
+termplot(mlr2, partial.resid = TRUE, terms = c("atemp", "windspeed", "hum"))
 ```
 
-![](Thursday_files/figure-gfm/unnamed-chunk-17-1.png)<!-- -->![](Thursday_files/figure-gfm/unnamed-chunk-17-2.png)<!-- -->![](Thursday_files/figure-gfm/unnamed-chunk-17-3.png)<!-- -->
+![](Thursday_files/figure-gfm/unnamed-chunk-16-1.png)<!-- -->![](Thursday_files/figure-gfm/unnamed-chunk-16-2.png)<!-- -->![](Thursday_files/figure-gfm/unnamed-chunk-16-3.png)<!-- -->
 
 For at least some days of the week there is a nonlinear pattern to the
 plots, particularly for `atemp`, so we will try adding quadratic terms
 for each of them to our base model.
 
-Try adding *a**t**e**m**p*<sup>2</sup>
+Try adding *a**t**e**m**p*<sup>2</sup> to base model
 
 ``` r
 mlr8 <- update(mlr2, . ~ . + I(atemp^2))
@@ -836,9 +713,11 @@ AIC(mlr8)
 
     ## [1] 1164.191
 
-Reduced or similar AIC, so keep mlr8 as new base model.
+Reduced or similar AIC, so keep mlr8 as a candidate model to compare
+using cross validation.
 
-Try adding *h**u**m*<sup>2</sup>
+Try adding *a**t**e**m**p*<sup>2</sup> and *h**u**m*<sup>2</sup> to base
+model
 
 ``` r
 mlr9 <- update(mlr8, . ~ . + I(hum^2))
@@ -896,7 +775,8 @@ AIC(mlr9)
 Similar AIC for most days of week, so keep mlr9 as a candidate model to
 compare using cross validation.
 
-Try adding *w**i**n**d**s**p**e**e**d*<sup>2</sup>
+Try adding *a**t**e**m**p*<sup>2</sup> and
+*w**i**n**d**s**p**e**e**d*<sup>2</sup> to base model
 
 ``` r
 mlr10 <- update(mlr8, . ~ . + I(windspeed^2))
@@ -1015,13 +895,9 @@ AIC(mlr11)
 Similar AIC for most days of week, so keep mlr11 as a candidate model to
 compare using cross validation.
 
-We will now compare the 4 candidate models using cross validation. Cross
-validation subdivides the training set into *k* folds, then fits a model
-using *k* − 1 of those folds, and tests its accuracy predicting on the
-*k*<sup>*t**h*</sup> fold. This is repeated *k* − 1 more times, so that
-each fold gets a turn as the test set. Several measures of the
-performance of the model are returned. We will choose the best model in
-terms of lowest Root Mean Squared Error.
+We will now compare the 4 candidate models using cross validation.
+Several measures of the performance of the model are returned. We will
+choose the best model in terms of lowest Root Mean Squared Error.
 
 ``` r
 if(length(unique(dayTrain$holiday)) != 1){
@@ -1099,7 +975,39 @@ of registered \~ season + yr + mnth + holiday + weathersit + atemp + hum
 
 ### Random Forest Model
 
-Intro to Random Forest …
+The random forest model is an improvement on the bagged tree model,
+which is an improvement on the basic decision tree model. Decision trees
+make predictions by dividing the predictor space into a number of
+regions, and determining which region the predictor values of the new
+observation fall into by applying a series of splits, each based on the
+value of a single predictor. The response for the new observation is
+then predicted to be the mean of the responses of the observations in
+that region (for regression models; for classification models, the
+prediction is the predominant class observed in the region). First a
+large tree is grown, with the goal of minimizing the residual sum of
+squares, resulting in a tree with many regions, each containing a small
+number of observations. But this complex tree will generally be overfit,
+with low bias and high variance, so it gets pruned back to an optimal
+size, determined by cross validation, that will have higher bias but
+lower variance, and ideally perform better when predicting on new data.
+
+Bagged tree models improve on basic decision trees by using the
+bootstrap to take many samples from the training data set and producing
+an unpruned tree from each sample, then averaging the predictions of
+those trees to get the bagged tree model. The averaging of hundreds of
+high-variance trees results in a much lower variance model.
+
+The random forest model is a further improvement on the bagged tree,
+which works by decorrelating the trees that are generated and averaged
+together. In a bagged tree model, many of the trees can end up being
+similar, with the main splits dominated by the strongest predictor(s).
+The correlation between these trees means that averaging them results in
+a smaller reduction in variance than desired. To remedy this, random
+forest models consider only a random subset of predictors for each
+split, resulting in less correlation between trees, and lower variance
+in the final model. The number of predictors considered for each split
+is a tuning parameter, whose value can be chosen using cross validation.
+…
 
 ``` r
 rfFit <- train(registered ~ . - instant - casual - cnt, data = dayTrain,
@@ -1136,7 +1044,34 @@ rfFit
     ## RMSE was used to select the optimal model using the smallest value.
     ## The final value used for the model was mtry = 13.
 
-### Boosted
+### Boosted Regression Tree
+
+A boosted regression tree is similar to other tree-based regression
+models, in that the regression is based on decision trees. Like other
+decision-tree models, random samples are taken to build iterations of
+the tree, but what makes boosted trees unique is that each iteration
+attempts to build and improve on the last version and predictions are
+updated as the trees are grown.
+
+The predictions are initialized to 0 and residuals are created. A tree
+is then fit to those residuals as a response. The predictions are then
+updated again, the response becomes the new residuals, and the process
+continues until a pre-determined number of **B** times has been reached.
+
+There are four parameters that can be chosen using cross-validation to
+create the best fit:
+
+-   the shrinkage parameter: also known as the learning rate, this
+    parameter determines how quickly the model learns. This parameter is
+    between 0 and 1, and when tuning, 0.1 is usually a good place to
+    start.
+-   number of trees: this can lead to over-fitting if the number of
+    trees is too large.
+-   interaction depth: an interaction depth of 1 would be an additive
+    model, while 2 would have two-way interactions. It is generally
+    recommended to look at a interaction depth of something near 2 to 8.
+-   min observations per node: default is 10, but this number can be
+    dropped especially if data is sparse.
 
 ``` r
 n.trees <- seq(5, 100, 5)
@@ -1153,8 +1088,7 @@ set.seed(1)
 fit_boost <- train(registered ~ ., 
                    data=dayTrain %>% 
                         drop_na() %>%
-                        select(-instant,-dteday, -season, 
-                               -weekday, -atemp, -casual, -cnt),
+                        select(-instant, -casual, -cnt),
                    method='gbm',
                    tuneGrid = grid,
                    trControl=trControl, 
@@ -1164,10 +1098,11 @@ fit_boost <- train(registered ~ .,
 # Comparison of models
 
 We will now compare the performance of the two linear regression models,
-the random forest model, and boosted tree model, by using each to
+the random forest model, and the boosted tree model, by using each to
 predict the `registered` response based on the values of the predictor
 variables in the test data set that we partitioned at the beginning. We
-will choose the best model on the basis of lowest Mean Squared Error.
+will choose the best model on the basis of lowest Root Mean Squared
+Error.
 
 ``` r
 final4 <- list(first_linear_regression = lm.fit1, second_linear_regression = mlrFinal2, random_forest = rfFit, boosted_tree = fit_boost)
@@ -1188,7 +1123,7 @@ kable(t(resultsComparison), digits = 3)
 | first\_linear\_regression  | 888.141 |    0.748 | 675.464 |
 | second\_linear\_regression | 775.345 |    0.795 | 607.240 |
 | random\_forest             | 581.957 |    0.866 | 447.759 |
-| boosted\_tree              | 810.137 |    0.772 | 661.850 |
+| boosted\_tree              | 583.820 |    0.871 | 457.433 |
 
 ``` r
 winnerIndex <- which.min(rmse)

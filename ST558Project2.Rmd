@@ -7,7 +7,7 @@ output:
     toc: true
 always_allow_html: true
 params:
-  dayOfWeek: "Tuesday"
+  dayOfWeek: "Monday"
 ---
 
 ```{r setup, include=FALSE}
@@ -194,15 +194,16 @@ We will now fit two linear regression models, using differing approaches, with t
 Linear regression estimates the effect of each predictor variable on the mean value of the response variable, with the other predictor variables held constant.  A linear regression model can be expressed as  
 $$Y_i = \beta_0 + \beta_1X_{i1} + \beta_2X_{i2} + ... + \beta_pX_{ip} + E_i$$
 
-where $Y_i$ is the response, $i$ represents the observation number, $X_{ij}$ are the predictor variables, and $E_i$ is the normally distributed random error. The $\beta_j$ coefficients must be linear, but the predictor variables can be higher order terms (e.g. $x^2$) or interaction terms (e.g. $x_1x_2$).  Creating a model to estimate the response using observed data, we have  
-$$\hat{y_i} = \hat\beta_0 + \hat\beta_1x_{i1} + \hat\beta_2x_{i2} + ... + \hat\beta_px_{ip}$$
-
+where $Y_i$ is the response, $i$ represents the observation number, $X_{ij}$ are the predictor variables, and $E_i$ is the normally distributed random error. The $\beta_j$ coefficients must be linear, but the predictor variables can be higher order terms (e.g. $x^2$) or interaction terms (e.g. $x_1x_2$).  Creating a model to estimate the response using observed data, we have $\hat{y_i} = \hat\beta_0 + \hat\beta_1x_{i1} + \hat\beta_2x_{i2} + ... + \hat\beta_px_{ip}$
 
 The $\hat\beta_j$ coefficients (estimates for $\beta_j$) are calculated for each predictor variable to minimize the residual sum of squares, using the observed values of $x_{ij}$ and $y_i$  
 $$min_{\beta_0, \beta_1, ..., \beta_p}\sum_{i=1}^{n}(y_i - \beta_0 - \beta_1x_{i1} - \beta_2x_{i2} - ... - \beta_px_{ip})^2$$
 
-The linear regression model can be used for inference, to understand the relationships between the predictor variables and the response, as well as for prediction of a mean response given new values of the predictor variables.  There are varying approaches to choosing which predictor variables to include in a linear regression model.  For our first linear regression model, we ....  
-For our second linear regression model, we ....
+The linear regression model can be used for inference, to understand the relationships between the predictor variables and the response, as well as for prediction of a mean response given new values of the predictor variables.  There are varying approaches to choosing which predictor variables to include in a linear regression model.  In both of our models, our goal is accurate prediction when applied to new data.  To accomplish this we take two different approaches to choosing a subset of predictor variables, in both cases using a combination of criterion-based comparison and cross validation.
+
+Criterion-based selection generally involves balancing bias and variance by adding to the residual sum of squares some penalty that increases with the number of predictors.  This compensates for the fact that including more predictors will always reduce the RSS for the training set, but beyond a certain point overfitting becomes a risk, responding too much to the noise in the training set, and reducing the accuracy of the model when applied to new data.
+
+Cross validation subdivides the training set into $k$ folds, then fits a model using $k - 1$ of those folds, and tests its accuracy predicting on the $k^{th}$ fold.  This is repeated $k - 1$ more times, so that each fold gets a turn as the test set.  The $k$ results (residual sum of squares, etc.) are then averaged.
 
 ### First linear regression model
 I am starting with a best subsets approach, meaning we will look at all of the predictors and use cross-validation to choose the one that has the best prediction capability. Since the training set is only around 80 rows, I opted for four-fold cross validation to leave some data in each fold.
@@ -254,10 +255,6 @@ min = which.min(mean_cv_errors)
 #the model w/ 14 variables was best when using 4 fold cv.
 #i did 4 fold because there are only about 80 rows of data per weekday
 
-best <- regsubsets(registered ~ ., 
-                           data=data, nvmax=20)
-best
-
 if(length(unique(dayTrain$workingday)) == 1){
   lm.fit1 <- lm(registered ~ yr + mnth + weathersit + temp + hum +
                windspeed, data=dayTrain)
@@ -265,19 +262,13 @@ if(length(unique(dayTrain$workingday)) == 1){
   lm.fit1 <- lm(registered ~ yr + mnth + weathersit + temp + hum +
                windspeed +workingday, data=dayTrain)
 }
-lm.fit1$nbest
-coef(lm.fit1)
-```
-```{r}
-summary(best)
-predict(best, newdata = dayTest, id = which.min(mean_cv_errors))
 ```
 
 Using best subsets, the following model was obtained:
 `r paste0(deparse1(lm.fit1$call[[2]]))`
 
 ### Second linear regression model
-In this approach, we start with a full linear regression model that includes all of the predictor variables.  We will then reduce collinearity (correlation among predictor variables) by removing redundant predictors until we reach an optimal (lowest) AIC.  We will calculate the condition number ($\kappa$) for each of the candidate models, which is a measure of collinearity.  Roughly, $\kappa < 30$ is considered desirable.  Finally, we will choose among several variations of the optimal model (including various higher order terms) using cross validation (described below).
+In this approach, we start with a full linear regression model that includes all of the predictor variables.  We will then reduce collinearity (correlation among predictor variables) by removing redundant predictors until we reach an optimal (lowest) AIC, which is one of the criteria for predictor subset selection described above.  We will calculate the condition number ($\kappa$) for each of the candidate models, which is a measure of collinearity.  Roughly, $\kappa < 30$ is considered desirable.  Finally, we will choose among several variations of the optimal model (including various higher order terms) using cross validation (described above).
 
 We begin with the full model, which includes all of the predictors.  `holiday` and `workingday` are excluded for days of the week that include only one level of `holiday` and `workingday`, respectively.
 ```{r arthur_bestMLR}
@@ -406,7 +397,7 @@ AIC(mlr11)
 
 Similar AIC for most days of week, so keep mlr11 as a candidate model to compare using cross validation.
 
-We will now compare the 4 candidate models using cross validation.    Cross validation subdivides the training set into $k$ folds, then fits a model using $k - 1$ of those folds, and tests its accuracy predicting on the $k^{th}$ fold.  This is repeated $k - 1$ more times, so that each fold gets a turn as the test set.  Several measures of the performance of the model are returned.  We will choose the best model in terms of lowest Root Mean Squared Error.
+We will now compare the 4 candidate models using cross validation.  Several measures of the performance of the model are returned.  We will choose the best model in terms of lowest Root Mean Squared Error.
 ```{r message = FALSE, warning = FALSE}
 if(length(unique(dayTrain$holiday)) != 1){
   mlrFit8 <- train(registered ~ season + yr + mnth + holiday + weathersit + atemp + hum + windspeed + I(atemp^2), data = dayTrain,
@@ -532,5 +523,5 @@ winnerIndex <- which.min(rmse)
 ```
 
 The best-performing model for `r params$day` is `r names(final4)[winnerIndex]`
-`r if(str_detect(names(final4)[4], "linear")){paste0("with a formula of ", deparse1(final4[[2]][["call"]][[2]]), ".")}`
+`r if(str_detect(names(final4)[winnerIndex], "linear")){paste0("with a formula of ", deparse1(final4[[winnerIndex]][["call"]][[2]]), ".")}`
 
