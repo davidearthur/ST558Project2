@@ -4,6 +4,7 @@ author: "By David Arthur and James Carr"
 date: "6/28/2021"
 output:
   github_document:
+    pandoc_args: --webtex
     toc: true
 always_allow_html: true
 params:
@@ -21,9 +22,9 @@ library(faraway)
 library(leaps)
 library(gridExtra)
 ```
-# `r params$dayOfWeek`
+# `r params$dayOfWeek` {.unlisted .unnumbered}
 # Introduction
-The data set this program analyzes can be found [here](https://archive.ics.uci.edu/ml/datasets/Bike+Sharing+Dataset). The data describes its volume of riders by a few dimensions: 
+The data set this program analyzes can be found [here](https://archive.ics.uci.edu/ml/datasets/Bike+Sharing+Dataset). The data describes the count of rental bikes between years 2011 and 2012 in the Capital bikeshare system by a few dimensions: 
 
 *  season
 *  day of the week
@@ -42,7 +43,9 @@ It is further broken down into three response variables:
 *  Registered: registered riders who use the service more regularly
 *  Total: casual and registered combined
 
-The split between casual and registered is important, because they behave completely differently, use the service on different days, times, holidays, etc. Often, their behavior is inverse of each other, though the registered rider group is largest portion of riders and would be the primary client of the business. Keeping in mind that the registered client represents the largest portion of the clientele, this program focuses on the registered metric and splits the behavior by each day of the week. 
+The split between casual and registered is important, because they behave completely differently, use the service on different days, times, holidays, etc. Often, their behavior is inverse of each other, though the registered rider group is largest portion of riders and would be the primary client of the business. Keeping in mind that the registered client represents the largest portion of the clientele, this program focuses on the registered metric and splits the behavior by each day of the week.
+
+This analysis constructs 2 linear regression models, a random forest model, and a boosted tree model, each designed to predict the number of registered riders on any given day based on the values of the predictor variables in the data set.
 
 # Data
 We begin by reading in the data, changing the names of some factor levels, and filtering by day of week
@@ -83,7 +86,7 @@ GGally::ggpairs(dayTrain %>% select(2:6, 8:9, atemp, windspeed, registered, casu
 ```
 
 We will now look in more detail at relationships between time-related variables and the `registered` response variable. When we do our linear regression modeling we will need to decide which (if any) of these predictors to use. For example, the date variable (`dteday`) and `season` may not be useful in the presence of `weekday`, `mnth`, and `yr` (or vice versa), as they provide largely redundant information.
-```{r}
+```{r message = FALSE}
 g <- ggplot(data = dayTrain)
 g + geom_point(aes(x = dteday, y = registered)) +
   labs(title = "Registered riders by date", x = "date", y = "# of registered riders")
@@ -194,16 +197,18 @@ We will now fit two linear regression models, using differing approaches, with t
 Linear regression estimates the effect of each predictor variable on the mean value of the response variable, with the other predictor variables held constant.  A linear regression model can be expressed as  
 $$Y_i = \beta_0 + \beta_1X_{i1} + \beta_2X_{i2} + ... + \beta_pX_{ip} + E_i$$
 
-where $Y_i$ is the response, $i$ represents the observation number, $X_{ij}$ are the predictor variables, and $E_i$ is the normally distributed random error. The $\beta_j$ coefficients must be linear, but the predictor variables can be higher order terms (e.g. $x^2$) or interaction terms (e.g. $x_1x_2$).  Creating a model to estimate the response using observed data, we have $\hat{y_i} = \hat\beta_0 + \hat\beta_1x_{i1} + \hat\beta_2x_{i2} + ... + \hat\beta_px_{ip}$
+where $Y_i$ is the response, $i$ represents the observation number, $X_{ij}$ are the predictor variables, and $E_i$ is the normally distributed random error. The $\beta_j$ coefficients must be linear, but the predictor variables can be higher order terms (e.g. $x^2$) or interaction terms (e.g. $x_1x_2$).  Creating a model to estimate the response using observed data, we have
+$$\hat{y_i} = \hat\beta_0 + \hat\beta_1x_{i1} + \hat\beta_2x_{i2} + ... + \hat\beta_px_{ip}$$
 
 The $\hat\beta_j$ coefficients (estimates for $\beta_j$) are calculated for each predictor variable to minimize the residual sum of squares, using the observed values of $x_{ij}$ and $y_i$  
+
 $$min_{\beta_0, \beta_1, ..., \beta_p}\sum_{i=1}^{n}(y_i - \beta_0 - \beta_1x_{i1} - \beta_2x_{i2} - ... - \beta_px_{ip})^2$$
 
 The linear regression model can be used for inference, to understand the relationships between the predictor variables and the response, as well as for prediction of a mean response given new values of the predictor variables.  There are varying approaches to choosing which predictor variables to include in a linear regression model.  In both of our models, our goal is accurate prediction when applied to new data.  To accomplish this we take two different approaches to choosing a subset of predictor variables, in both cases using a combination of criterion-based comparison and cross validation.
 
 Criterion-based selection generally involves balancing bias and variance by adding to the residual sum of squares some penalty that increases with the number of predictors.  This compensates for the fact that including more predictors will always reduce the RSS for the training set, but beyond a certain point overfitting becomes a risk, responding too much to the noise in the training set, and reducing the accuracy of the model when applied to new data.
 
-Cross validation subdivides the training set into $k$ folds, then fits a model using $k - 1$ of those folds, and tests its accuracy predicting on the $k^{th}$ fold.  This is repeated $k - 1$ more times, so that each fold gets a turn as the test set.  The $k$ results (residual sum of squares, etc.) are then averaged.
+Cross validation subdivides the training set into $k$ folds, then fits a model using $k - 1$ of those folds, and tests its accuracy predicting on the $k^{th}$ fold.  This is repeated $k - 1$ more times, so that each fold gets a turn as the test set.  The $k$ results (residual sum of squares, etc.) are then averaged.  Cross validation can be performed on a number of candidate models, and the model with the lowest resulting mean squared error can be chosen as likely to perform best predicting on new data.
 
 ### First linear regression model
 I am starting with a best subsets approach, meaning we will look at all of the predictors and use cross-validation to choose the one that has the best prediction capability. Since the training set is only around 80 rows, I opted for four-fold cross validation to leave some data in each fold.
@@ -287,9 +292,10 @@ x <- model.matrix(mlrFull)[, -1]
 e <- eigen(t(x) %*% x)
 # e$val
 # condition number
+kappa <- sqrt(e$val[1]/min(e$val))
 ```
 
-We see that $\kappa$ = `r round(sqrt(e$val[1]/min(e$val)), 2)`, which is a sign of high collinearity, so we try removing some of the insignificant predictors, checking to confirm that AIC declines, or at least that it increases only marginally.
+We see that $\kappa$ = `r round(kappa, 2)`, which is a sign of high collinearity, so we try removing some of the insignificant predictors, checking to confirm that AIC declines, or at least that it increases only marginally.
 
 To help in consideration of which variables to remove, we view the correlations.  For days of the week that don't include any holidays, `?` will appear in the `holiday` and `workingday` rows and columns.
 ```{r message = FALSE, warning = FALSE}
@@ -310,10 +316,11 @@ AIC(mlr2)
 x <- model.matrix(mlr2)[, -1]
 e <- eigen(t(x) %*% x)
 # e$val
-# condition number = sqrt(e$val[1]/min(e$val))
+# condition number
+kappa <- sqrt(e$val[1]/min(e$val))
 ```
 
-We see that AIC has changed little, and that $\kappa$ = `r round(sqrt(e$val[1]/min(e$val)), 2)`, which indicates a large reduction in collinearity.
+We see that AIC has changed little, and that $\kappa$ = `r round(kappa, 2)`, which indicates a large reduction in collinearity.
 
 
 `mnth`, `weathersit` and `windspeed` appear to be marginally significant, so we look at the effect of removing each of them from the model:  
@@ -346,7 +353,7 @@ We will now do some diagnostic plots on our base model, and then consider adding
 We can check for constant variance of our error term, an assumption of our model, by looking at a plot of the model's fitted values vs the residuals (difference between fitted response and observed response).  A "megaphone" shape can indicate non-constant variance.
 ```{r}
 g <- ggplot(mlr2)
-g + geom_point(aes(x = .fitted, y = .resid)) + labs (title = "Fitted (predicted) values vs residuals (difference between fitted and actual value)", x = "fitted (predicted) values", y = "residuals")
+g + geom_point(aes(x = .fitted, y = .resid)) + labs (title = "Fitted values vs residuals (difference between predicted and actual value)", x = "fitted (predicted) values", y = "residuals")
 ```
 
 Another way to assess constant variance is with the Box-Cox method, which can suggest transformations of the response to address problems with non-constant variance.  If the maximum log-likelihood of $\lambda$ close to 1, as in this case, indicates that non-constant variance is not a problem with the existing model.

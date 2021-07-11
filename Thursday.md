@@ -3,7 +3,6 @@ ST 558 Project 2
 By David Arthur and James Carr
 6/28/2021
 
--   [Thursday](#thursday)
 -   [Introduction](#introduction)
 -   [Data](#data)
 -   [Summarizations](#summarizations)
@@ -21,7 +20,8 @@ By David Arthur and James Carr
 
 The data set this program analyzes can be found
 [here](https://archive.ics.uci.edu/ml/datasets/Bike+Sharing+Dataset).
-The data describes its volume of riders by a few dimensions:
+The data describes the count of rental bikes between years 2011 and 2012
+in the Capital bikeshare system by a few dimensions:
 
 -   season
 -   day of the week
@@ -48,6 +48,11 @@ primary client of the business. Keeping in mind that the registered
 client represents the largest portion of the clientele, this program
 focuses on the registered metric and splits the behavior by each day of
 the week.
+
+This analysis constructs 2 linear regression models, a random forest
+model, and a boosted tree model, each designed to predict the number of
+registered riders on any given day based on the values of the predictor
+variables in the data set.
 
 # Data
 
@@ -115,11 +120,6 @@ g + geom_point(aes(x = dteday, y = registered)) +
 ``` r
 meanByMonthYr <- dayTrain %>% group_by(mnth, yr) %>%
   summarize(meanReg = mean(registered))
-```
-
-    ## `summarise()` has grouped output by 'mnth'. You can override using the `.groups` argument.
-
-``` r
 g2 <- ggplot(meanByMonthYr, aes(x = mnth))
 g2 + geom_bar(aes(y = meanReg, fill = yr), position = "dodge", stat = "identity") +
   labs(title = "Mean daily registered riders by month, grouped by year", x = "month", y = "Mean daily registered riders", fill = "year")
@@ -289,22 +289,36 @@ test the accuracy of the models’ predictions using the test data set.
 Linear regression estimates the effect of each predictor variable on the
 mean value of the response variable, with the other predictor variables
 held constant. A linear regression model can be expressed as  
-*Y*<sub>*i*</sub> = *β*<sub>0</sub> + *β*<sub>1</sub>*X*<sub>*i*1</sub> + *β*<sub>2</sub>*X*<sub>*i*2</sub> + ... + *β*<sub>*p*</sub>*X*<sub>*i**p*</sub> + *E*<sub>*i*</sub>
 
-where *Y*<sub>*i*</sub> is the response, *i* represents the observation
-number, *X*<sub>*i**j*</sub> are the predictor variables, and
-*E*<sub>*i*</sub> is the normally distributed random error. The
-*β*<sub>*j*</sub> coefficients must be linear, but the predictor
-variables can be higher order terms (e.g. *x*<sup>2</sup>) or
-interaction terms (e.g. *x*<sub>1</sub>*x*<sub>2</sub>). Creating a
-model to estimate the response using observed data, we have
-$\\hat{y\_i} = \\hat\\beta\_0 + \\hat\\beta\_1x\_{i1} + \\hat\\beta\_2x\_{i2} + ... + \\hat\\beta\_px\_{ip}$
+![Y\_i = \\beta\_0 + \\beta\_1X\_{i1} + \\beta\_2X\_{i2} + ... + \\beta\_pX\_{ip} + E\_i](https://latex.codecogs.com/png.latex?Y_i%20%3D%20%5Cbeta_0%20%2B%20%5Cbeta_1X_%7Bi1%7D%20%2B%20%5Cbeta_2X_%7Bi2%7D%20%2B%20...%20%2B%20%5Cbeta_pX_%7Bip%7D%20%2B%20E_i "Y_i = \beta_0 + \beta_1X_{i1} + \beta_2X_{i2} + ... + \beta_pX_{ip} + E_i")
 
-The *β̂*<sub>*j*</sub> coefficients (estimates for *β*<sub>*j*</sub>) are
-calculated for each predictor variable to minimize the residual sum of
-squares, using the observed values of *x*<sub>*i**j*</sub> and
-*y*<sub>*i*</sub>  
-$$min\_{\\beta\_0, \\beta\_1, ..., \\beta\_p}\\sum\_{i=1}^{n}(y\_i - \\beta\_0 - \\beta\_1x\_{i1} - \\beta\_2x\_{i2} - ... - \\beta\_px\_{ip})^2$$
+where ![Y\_i](https://latex.codecogs.com/png.latex?Y_i "Y_i") is the
+response, ![i](https://latex.codecogs.com/png.latex?i "i") represents
+the observation number,
+![X\_{ij}](https://latex.codecogs.com/png.latex?X_%7Bij%7D "X_{ij}") are
+the predictor variables, and
+![E\_i](https://latex.codecogs.com/png.latex?E_i "E_i") is the normally
+distributed random error. The
+![\\beta\_j](https://latex.codecogs.com/png.latex?%5Cbeta_j "\beta_j")
+coefficients must be linear, but the predictor variables can be higher
+order terms
+(e.g. ![x^2](https://latex.codecogs.com/png.latex?x%5E2 "x^2")) or
+interaction terms
+(e.g. ![x\_1x\_2](https://latex.codecogs.com/png.latex?x_1x_2 "x_1x_2")).
+Creating a model to estimate the response using observed data, we have
+
+![\\hat{y\_i} = \\hat\\beta\_0 + \\hat\\beta\_1x\_{i1} + \\hat\\beta\_2x\_{i2} + ... + \\hat\\beta\_px\_{ip}](https://latex.codecogs.com/png.latex?%5Chat%7By_i%7D%20%3D%20%5Chat%5Cbeta_0%20%2B%20%5Chat%5Cbeta_1x_%7Bi1%7D%20%2B%20%5Chat%5Cbeta_2x_%7Bi2%7D%20%2B%20...%20%2B%20%5Chat%5Cbeta_px_%7Bip%7D "\hat{y_i} = \hat\beta_0 + \hat\beta_1x_{i1} + \hat\beta_2x_{i2} + ... + \hat\beta_px_{ip}")
+
+The
+![\\hat\\beta\_j](https://latex.codecogs.com/png.latex?%5Chat%5Cbeta_j "\hat\beta_j")
+coefficients (estimates for
+![\\beta\_j](https://latex.codecogs.com/png.latex?%5Cbeta_j "\beta_j"))
+are calculated for each predictor variable to minimize the residual sum
+of squares, using the observed values of
+![x\_{ij}](https://latex.codecogs.com/png.latex?x_%7Bij%7D "x_{ij}") and
+![y\_i](https://latex.codecogs.com/png.latex?y_i "y_i")
+
+![min\_{\\beta\_0, \\beta\_1, ..., \\beta\_p}\\sum\_{i=1}^{n}(y\_i - \\beta\_0 - \\beta\_1x\_{i1} - \\beta\_2x\_{i2} - ... - \\beta\_px\_{ip})^2](https://latex.codecogs.com/png.latex?min_%7B%5Cbeta_0%2C%20%5Cbeta_1%2C%20...%2C%20%5Cbeta_p%7D%5Csum_%7Bi%3D1%7D%5E%7Bn%7D%28y_i%20-%20%5Cbeta_0%20-%20%5Cbeta_1x_%7Bi1%7D%20-%20%5Cbeta_2x_%7Bi2%7D%20-%20...%20-%20%5Cbeta_px_%7Bip%7D%29%5E2 "min_{\beta_0, \beta_1, ..., \beta_p}\sum_{i=1}^{n}(y_i - \beta_0 - \beta_1x_{i1} - \beta_2x_{i2} - ... - \beta_px_{ip})^2")
 
 The linear regression model can be used for inference, to understand the
 relationships between the predictor variables and the response, as well
@@ -324,11 +338,20 @@ set, but beyond a certain point overfitting becomes a risk, responding
 too much to the noise in the training set, and reducing the accuracy of
 the model when applied to new data.
 
-Cross validation subdivides the training set into *k* folds, then fits a
-model using *k* − 1 of those folds, and tests its accuracy predicting on
-the *k*<sup>*t**h*</sup> fold. This is repeated *k* − 1 more times, so
-that each fold gets a turn as the test set. The *k* results (residual
-sum of squares, etc.) are then averaged.
+Cross validation subdivides the training set into
+![k](https://latex.codecogs.com/png.latex?k "k") folds, then fits a
+model using
+![k - 1](https://latex.codecogs.com/png.latex?k%20-%201 "k - 1") of
+those folds, and tests its accuracy predicting on the
+![k^{th}](https://latex.codecogs.com/png.latex?k%5E%7Bth%7D "k^{th}")
+fold. This is repeated
+![k - 1](https://latex.codecogs.com/png.latex?k%20-%201 "k - 1") more
+times, so that each fold gets a turn as the test set. The
+![k](https://latex.codecogs.com/png.latex?k "k") results (residual sum
+of squares, etc.) are then averaged. Cross validation can be performed
+on a number of candidate models, and the model with the lowest resulting
+mean squared error can be chosen as likely to perform best predicting on
+new data.
 
 ### First linear regression model
 
@@ -409,11 +432,14 @@ includes all of the predictor variables. We will then reduce
 collinearity (correlation among predictor variables) by removing
 redundant predictors until we reach an optimal (lowest) AIC, which is
 one of the criteria for predictor subset selection described above. We
-will calculate the condition number (*κ*) for each of the candidate
-models, which is a measure of collinearity. Roughly, *κ* &lt; 30 is
-considered desirable. Finally, we will choose among several variations
-of the optimal model (including various higher order terms) using cross
-validation (described above).
+will calculate the condition number
+(![\\kappa](https://latex.codecogs.com/png.latex?%5Ckappa "\kappa")) for
+each of the candidate models, which is a measure of collinearity.
+Roughly,
+![\\kappa &lt; 30](https://latex.codecogs.com/png.latex?%5Ckappa%20%3C%2030 "\kappa < 30")
+is considered desirable. Finally, we will choose among several
+variations of the optimal model (including various higher order terms)
+using cross validation (described above).
 
 We begin with the full model, which includes all of the predictors.
 `holiday` and `workingday` are excluded for days of the week that
@@ -486,12 +512,14 @@ x <- model.matrix(mlrFull)[, -1]
 e <- eigen(t(x) %*% x)
 # e$val
 # condition number
+kappa <- sqrt(e$val[1]/min(e$val))
 ```
 
-We see that *κ* = 4.1783708^{7}, which is a sign of high collinearity,
-so we try removing some of the insignificant predictors, checking to
-confirm that AIC declines, or at least that it increases only
-marginally.
+We see that
+![\\kappa](https://latex.codecogs.com/png.latex?%5Ckappa "\kappa") =
+4.1783708^{7}, which is a sign of high collinearity, so we try removing
+some of the insignificant predictors, checking to confirm that AIC
+declines, or at least that it increases only marginally.
 
 To help in consideration of which variables to remove, we view the
 correlations. For days of the week that don’t include any holidays, `?`
@@ -570,11 +598,13 @@ AIC(mlr2)
 x <- model.matrix(mlr2)[, -1]
 e <- eigen(t(x) %*% x)
 # e$val
-# condition number = sqrt(e$val[1]/min(e$val))
+# condition number
+kappa <- sqrt(e$val[1]/min(e$val))
 ```
 
-We see that AIC has changed little, and that *κ* = 40.11, which
-indicates a large reduction in collinearity.
+We see that AIC has changed little, and that
+![\\kappa](https://latex.codecogs.com/png.latex?%5Ckappa "\kappa") =
+40.11, which indicates a large reduction in collinearity.
 
 `mnth`, `weathersit` and `windspeed` appear to be marginally
 significant, so we look at the effect of removing each of them from the
@@ -627,16 +657,17 @@ residuals (difference between fitted response and observed response). A
 
 ``` r
 g <- ggplot(mlr2)
-g + geom_point(aes(x = .fitted, y = .resid)) + labs (title = "Fitted (predicted) values vs residuals (difference between fitted and actual value)", x = "fitted (predicted) values", y = "residuals")
+g + geom_point(aes(x = .fitted, y = .resid)) + labs (title = "Fitted values vs residuals (difference between predicted and actual value)", x = "fitted (predicted) values", y = "residuals")
 ```
 
 ![](Thursday_files/figure-gfm/unnamed-chunk-14-1.png)<!-- -->
 
 Another way to assess constant variance is with the Box-Cox method,
 which can suggest transformations of the response to address problems
-with non-constant variance. If the maximum log-likelihood of *λ* close
-to 1, as in this case, indicates that non-constant variance is not a
-problem with the existing model.
+with non-constant variance. If the maximum log-likelihood of
+![\\lambda](https://latex.codecogs.com/png.latex?%5Clambda "\lambda")
+close to 1, as in this case, indicates that non-constant variance is not
+a problem with the existing model.
 
 ``` r
 MASS::boxcox(mlr2)
@@ -659,7 +690,9 @@ For at least some days of the week there is a nonlinear pattern to the
 plots, particularly for `atemp`, so we will try adding quadratic terms
 for each of them to our base model.
 
-Try adding *a**t**e**m**p*<sup>2</sup> to base model
+Try adding
+![atemp^2](https://latex.codecogs.com/png.latex?atemp%5E2 "atemp^2") to
+base model
 
 ``` r
 mlr8 <- update(mlr2, . ~ . + I(atemp^2))
@@ -716,7 +749,9 @@ AIC(mlr8)
 Reduced or similar AIC, so keep mlr8 as a candidate model to compare
 using cross validation.
 
-Try adding *a**t**e**m**p*<sup>2</sup> and *h**u**m*<sup>2</sup> to base
+Try adding
+![atemp^2](https://latex.codecogs.com/png.latex?atemp%5E2 "atemp^2") and
+![hum^2](https://latex.codecogs.com/png.latex?hum%5E2 "hum^2") to base
 model
 
 ``` r
@@ -775,8 +810,10 @@ AIC(mlr9)
 Similar AIC for most days of week, so keep mlr9 as a candidate model to
 compare using cross validation.
 
-Try adding *a**t**e**m**p*<sup>2</sup> and
-*w**i**n**d**s**p**e**e**d*<sup>2</sup> to base model
+Try adding
+![atemp^2](https://latex.codecogs.com/png.latex?atemp%5E2 "atemp^2") and
+![windspeed^2](https://latex.codecogs.com/png.latex?windspeed%5E2 "windspeed^2")
+to base model
 
 ``` r
 mlr10 <- update(mlr8, . ~ . + I(windspeed^2))
