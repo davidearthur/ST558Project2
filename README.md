@@ -13,7 +13,6 @@ The following packages are required to run this program:
 *  faraway
 *  leaps
 *  gridExtra
-*  leaps
 
 ## Links to Each Day of the Week
 For each day of the week, we looked at summary statistics and created multiple models to predict the number of registered riders. You can find each day's analyses at the following links: 
@@ -33,6 +32,6 @@ For each day of the week, we looked at summary statistics and created multiple m
     params <- lapply(days, FUN = function(x){list(dayOfWeek = x)})
     documents <- tibble(output_file, params)
     apply(documents, MARGIN = 1, FUN = function(x){
-      render(input = "/Users/davidarthur/Repos/ST558Project2/ST558Project2.Rmd",
+      render(input = "ST558Project2.Rmd",
              output_file = x[[1]], params = x[[2]])
       })
